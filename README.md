@@ -28,7 +28,7 @@ Open 2 shell prompts and start an Erlang VM in each:
     # Back in VM 1
     2> {ok, Socket} = procket:accept(Listen).
     {ok,9}
-    3> {ok, FD} = gen_unix:fdrecv(S1).
+    3> {ok, FD} = gen_unix:fdrecv(Socket).
     {ok,10}
     4> procket:read(FD, 1024).
     {ok,<<69,0,0,84,236,114,0,0,56,1,38,238,173,194,43,69,
