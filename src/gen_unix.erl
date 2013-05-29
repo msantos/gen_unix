@@ -179,7 +179,7 @@ creddata(Error, _Level, _Type) ->
     Error.
 
 cred(#cmsghdr{data = <<
-        Pid:4/native-unsigned-integer-unit:8,
+        Pid:4/native-signed-integer-unit:8,
         Uid:4/native-unsigned-integer-unit:8,
         Gid:4/native-unsigned-integer-unit:8
         >>}) ->
