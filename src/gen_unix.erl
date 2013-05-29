@@ -184,6 +184,13 @@ cred({unix, linux}, <<
         Gid:4/native-unsigned-integer-unit:8
         >>) ->
     {ok, [{pid, Pid}, {uid, Uid}, {gid, Gid}]};
+cred({unix, linux}, Fields) when is_list(Fields) ->
+    Pid = proplists:get_value(pid, Fields, list_to_integer(os:getpid())),
+    Uid = proplists:get_value(uid, Fields, 0), % XXX no way to get uid?
+    Gid = proplists:get_value(gid, Fields, 0), % XXX or gid?
+    <<Pid:4/native-signed-integer-unit:8,
+      Uid:4/native-unsigned-integer-unit:8,
+      Gid:4/native-unsigned-integer-unit:8>>;
 
 % #define XU_NGROUPS  16
 % #define XUCRED_VERSION  0
@@ -208,6 +215,19 @@ cred({unix, freebsd}, <<
         {uid, Uid},
         {groups, Groups}
         ]};
+cred({unix, freebsd}, Fields) when is_list(Fields) ->
+    Size = erlang:system_info({wordsize, external}),
+    Version = proplists:get_value(version, Fields, 0),
+    Uid = proplists:get_value(uid, Fields, 0),
+    Groups = proplists:get_value(groups, Fields, [0]),
+    Ngroups = length(Groups),
+    Gr = << <<N:4/native-unsigned-integer-unit:8>> || N <- Groups >>,
+    Pad = (16 - Ngroups) * 8,
+    <<Version:4/native-unsigned-integer-unit:8,
+      Uid:4/native-unsigned-integer-unit:8,
+      Ngroups:2/native-signed-integer-unit:8,
+      Gr/binary, 0:Pad,
+      0:Size/native-unsigned-integer-unit:8>>;
 
 % OpenBSD
 % struct ucred {
@@ -242,6 +262,19 @@ cred({unix, _}, <<
         {gid, Gid},
         {groups, Groups}
         ]};
+cred({unix, _}, Fields) when is_list(Fields) ->
+    Ref = proplists:get_value(ref, Fields, 0),
+    Uid = proplists:get_value(uid, Fields, 0),
+    Gid = proplists:get_value(gid, Fields, 0),
+    Groups = proplists:get_value(groups, Fields, [0]),
+    Ngroups = length(Groups),
+    Gr = << <<N:4/native-unsigned-integer-unit:8>> || N <- Groups >>,
+    Pad = (16 - Ngroups) * 8, % NGROUPS_MAX = 16
+    <<Ref:4/native-unsigned-integer-unit:8,
+      Uid:4/native-unsigned-integer-unit:8,
+      Gid:4/native-unsigned-integer-unit:8,
+      Ngroups:2/native-signed-integer-unit:8,
+      Gr/binary, 0:Pad>>;
 
 cred(_, #cmsghdr{data = Data}) ->
     {error, {invalid_data, Data}}.
