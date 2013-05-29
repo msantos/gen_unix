@@ -41,7 +41,8 @@
     fdrecv/1,
 
     credsend/1,
-    credrecv/1
+    credrecv/1,
+    cred/1
     ]).
 
 -define(SCM_RIGHTS, 16#01).
@@ -50,11 +51,6 @@
 % XXX testing only, move these to procket
 -define(SO_PASSCRED, 16).
 
--record(ucred, {
-        pid = 0,    % PID of sending process (pid_t)
-        uid = 0,    % UID of sending process (uid_t)
-        gid = 0     % GID of sending process (gid_t)
-        }).
 
 listen(Path) when is_list(Path) ->
     listen(list_to_binary(Path));
@@ -129,12 +125,7 @@ fd(#cmsghdr{data = <<FD:4/native-unsigned-integer-unit:8>>}) ->
 fd(#cmsghdr{data = Data}) ->
     {error, {invalid_data, Data}}.
 
-% struct ucred
-% {
-%     pid_t pid;            /* PID of sending process.  */
-%     uid_t uid;            /* UID of sending process.  */
-%     gid_t gid;            /* GID of sending process.  */
-% };
+
 credsend(Socket) when is_integer(Socket) ->
     {ok, Msg, _Res} = procket_msg:msghdr(#msghdr{
         name = <<>>,        % must be empty (NULL) or eisconn
@@ -170,20 +161,87 @@ credrecv(Socket) when is_integer(Socket) ->
 creddata({ok, Buf}, Level, Type) ->
     {Cmsg, _} = procket_msg:cmsghdr(Buf),
     case Cmsg of
-        #cmsghdr{level = Level, type = Type} ->
-            cred(Cmsg);
+        #cmsghdr{level = Level, type = Type, data = Data} ->
+            {ok, Data};
         _ ->
             {error, {invalid_cmsghdr, Level, Type}}
     end;
 creddata(Error, _Level, _Type) ->
     Error.
 
-cred(#cmsghdr{data = <<
+cred(Data) ->
+    cred(os:type(), Data).
+
+% struct ucred
+% {
+%     pid_t pid;            /* PID of sending process.  */
+%     uid_t uid;            /* UID of sending process.  */
+%     gid_t gid;            /* GID of sending process.  */
+% };
+cred({unix, linux}, <<
         Pid:4/native-signed-integer-unit:8,
         Uid:4/native-unsigned-integer-unit:8,
         Gid:4/native-unsigned-integer-unit:8
-        >>}) ->
-    %{ok, [{pid, Pid}, {uid, Uid}, {gid, Gid}]};
-    {ok, #ucred{pid = Pid, uid = Uid, gid = Gid}};
-cred(#cmsghdr{data = Data}) ->
+        >>) ->
+    {ok, [{pid, Pid}, {uid, Uid}, {gid, Gid}]};
+
+% #define XU_NGROUPS  16
+% #define XUCRED_VERSION  0
+% struct xucred {
+%     u_int   cr_version;     /* structure layout version */
+%     uid_t   cr_uid;         /* effective user id */
+%     short   cr_ngroups;     /* number of groups */
+%     gid_t   cr_groups[XU_NGROUPS];  /* groups */
+%     void    *_cr_unused1;       /* compatibility with old ucred */
+% };
+cred({unix, freebsd}, <<
+        Version:4/native-unsigned-integer-unit:8,
+        Uid:4/native-unsigned-integer-unit:8,
+        Ngroups:2/native-signed-integer-unit:8,
+        Rest/binary
+        >>) ->
+    Num = Ngroups * 4 * 8,
+    <<Gr:Num, _/binary>> = Rest,
+    Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
+    {ok, [
+        {version, Version},
+        {uid, Uid},
+        {groups, Groups}
+        ]};
+
+% OpenBSD
+% struct ucred {
+%     u_int   cr_ref;         /* reference count */
+%     uid_t   cr_uid;         /* effective user id */
+%     gid_t   cr_gid;         /* effective group id */
+%     short   cr_ngroups;     /* number of groups */
+%     gid_t   cr_groups[NGROUPS]; /* groups */
+% };
+%
+% NetBSD
+% struct uucred {
+%     unsigned short  cr_unused;      /* not used, compat */
+%     uid_t       cr_uid;         /* effective user id */
+%     gid_t       cr_gid;         /* effective group id */
+%     short       cr_ngroups;     /* number of groups */
+%     gid_t       cr_groups[NGROUPS_MAX]; /* groups */
+% };
+cred({unix, _}, <<
+        Ref:4/native-unsigned-integer-unit:8,
+        Uid:4/native-unsigned-integer-unit:8,
+        Gid:4/native-unsigned-integer-unit:8,
+        Ngroups:2/native-signed-integer-unit:8,
+        Rest/binary
+        >>) ->
+    Num = Ngroups * 4 * 8,
+    <<Gr:Num, _/binary>> = Rest,
+    Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
+    {ok, [
+        {ref, Ref},
+        {uid, Uid},
+        {gid, Gid},
+        {groups, Groups}
+        ]};
+
+cred(_, #cmsghdr{data = Data}) ->
     {error, {invalid_data, Data}}.

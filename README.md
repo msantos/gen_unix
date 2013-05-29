@@ -58,4 +58,7 @@ Examples
         {ok,9}
 
         3> {ok, Cred} = gen_unix:credrecv(Socket).
-        {ok,#ucred{pid = 27679,uid = 1000,gid = 1000}}
+        {ok,<<66,50,0,0,232,3,0,0,232,3,0,0>>}
+
+        4> gen_unix:cred(Cred).
+        {ok,[{pid,12866},{uid,1000},{gid,1000}]}
