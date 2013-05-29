@@ -38,11 +38,23 @@
     connect/1,
 
     fdsend/2,
-    fdrecv/1
+    fdrecv/1,
+
+    credsend/1,
+    credrecv/1
     ]).
 
 -define(SCM_RIGHTS, 16#01).
 -define(SCM_CREDENTIALS, 16#02).
+
+% XXX testing only, move these to procket
+-define(SO_PASSCRED, 16).
+
+-record(ucred, {
+        pid = 0,    % PID of sending process (pid_t)
+        uid = 0,    % UID of sending process (uid_t)
+        gid = 0     % GID of sending process (gid_t)
+        }).
 
 listen(Path) when is_list(Path) ->
     listen(list_to_binary(Path));
@@ -93,30 +105,85 @@ fdrecv(Socket) when is_integer(Socket) ->
     }),
     case procket:recvmsg(Socket, Msg, 0) of
         {ok, 1, _Msghdr} ->
-            fddata(procket:buf(proplists:get_value(msg_control, Res)));
-        {ok, _, _Msghdr} ->
-            {ok, -1};
+            fddata(procket:buf(proplists:get_value(msg_control, Res)),
+                ?SOL_SOCKET, ?SCM_RIGHTS);
+        {ok, N, _Msghdr} ->
+            {error, {invalid_length, N}};
         {error, _} = Error ->
             Error
     end.
 
-fddata({ok, Buf}) ->
+fddata({ok, Buf}, Level, Type) ->
     {Cmsg, _} = procket_msg:cmsghdr(Buf),
-    cmsg_level(Cmsg);
-fddata(Error) ->
+    case Cmsg of
+        #cmsghdr{level = Level, type = Type} ->
+            fd(Cmsg);
+        _ ->
+            {error, {invalid_cmsghdr, Level, Type}}
+    end;
+fddata(Error, _Level, _Type) ->
     Error.
-
-cmsg_level(#cmsghdr{level = ?SOL_SOCKET} = Cmsg) ->
-    cmsg_type(Cmsg);
-cmsg_level(#cmsghdr{level = Level}) ->
-    {error, {cmsg_level, Level}}.
-
-cmsg_type(#cmsghdr{type = ?SCM_RIGHTS} = Cmsg) ->
-    fd(Cmsg);
-cmsg_type(#cmsghdr{type = Type}) ->
-    {error, {cmsg_type, Type}}.
 
 fd(#cmsghdr{data = <<FD:4/native-unsigned-integer-unit:8>>}) ->
     {ok, FD};
 fd(#cmsghdr{data = Data}) ->
+    {error, {invalid_data, Data}}.
+
+% struct ucred
+% {
+%     pid_t pid;            /* PID of sending process.  */
+%     uid_t uid;            /* UID of sending process.  */
+%     gid_t gid;            /* GID of sending process.  */
+% };
+credsend(Socket) when is_integer(Socket) ->
+    {ok, Msg, _Res} = procket_msg:msghdr(#msghdr{
+        name = <<>>,        % must be empty (NULL) or eisconn
+        iov = [<<"c">>],    % send 1 byte to differentiate success from EOF
+        control = <<>>      % Automatically supply credentials (XXX portable?)
+    }),
+    procket:sendmsg(Socket, Msg, 0).
+
+credrecv(Socket) when is_integer(Socket) ->
+    ok = procket:setsockopt(Socket, ?SOL_SOCKET, ?SO_PASSCRED,
+            <<1:4/native-unsigned-integer-unit:8>>),
+    Sizeof_ucred = 4 + 4 + 4, % XXX check sizes
+    Cmsg = procket_msg:cmsghdr(#cmsghdr{
+            level = ?SOL_SOCKET,
+            type = ?SCM_CREDENTIALS,
+            data = <<0:(Sizeof_ucred * 8)>>
+            }),
+    {ok, Msg, Res} = procket_msg:msghdr(#msghdr{
+        name = <<>>,
+        iov = [<<0:8>>],
+        control = Cmsg
+    }),
+    case procket:recvmsg(Socket, Msg, 0) of
+        {ok, 1, _Msghdr} ->
+            creddata(procket:buf(proplists:get_value(msg_control, Res)),
+                ?SOL_SOCKET, ?SCM_CREDENTIALS);
+        {ok, N, _Msghdr} ->
+            {error, {invalid_length, N}};
+        {error, _} = Error ->
+            Error
+    end.
+
+creddata({ok, Buf}, Level, Type) ->
+    {Cmsg, _} = procket_msg:cmsghdr(Buf),
+    case Cmsg of
+        #cmsghdr{level = Level, type = Type} ->
+            cred(Cmsg);
+        _ ->
+            {error, {invalid_cmsghdr, Level, Type}}
+    end;
+creddata(Error, _Level, _Type) ->
+    Error.
+
+cred(#cmsghdr{data = <<
+        Pid:4/native-unsigned-integer-unit:8,
+        Uid:4/native-unsigned-integer-unit:8,
+        Gid:4/native-unsigned-integer-unit:8
+        >>}) ->
+    %{ok, [{pid, Pid}, {uid, Uid}, {gid, Gid}]};
+    {ok, #ucred{pid = Pid, uid = Uid, gid = Gid}};
+cred(#cmsghdr{data = Data}) ->
     {error, {invalid_data, Data}}.
