@@ -40,7 +40,7 @@
     fdsend/2,
     fdrecv/1,
 
-    credsend/1,
+    credsend/1, credsend/2,
     credrecv/1,
     cred/1
     ]).
@@ -127,10 +127,21 @@ fd(#cmsghdr{data = Data}) ->
 
 
 credsend(Socket) when is_integer(Socket) ->
+    credsend_1(Socket, <<>>).
+
+credsend(Socket, Cred) when is_integer(Socket) ->
+    Cmsg = procket_msg:cmsghdr(#cmsghdr{
+            level = ?SOL_SOCKET,
+            type = ?SCM_CREDENTIALS,
+            data = Cred
+            }),
+    credsend_1(Socket, Cmsg).
+
+credsend_1(Socket, Cmsg) when is_integer(Socket) ->
     {ok, Msg, _Res} = procket_msg:msghdr(#msghdr{
-        name = <<>>,        % must be empty (NULL) or eisconn
-        iov = [<<"c">>],    % send 1 byte to differentiate success from EOF
-        control = <<>>      % Automatically supply credentials (XXX portable?)
+        name = <<>>,
+        iov = [<<"c">>],
+        control = Cmsg
     }),
     procket:sendmsg(Socket, Msg, 0).
 
