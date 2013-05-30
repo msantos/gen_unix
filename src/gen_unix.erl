@@ -39,6 +39,7 @@
 
     fdsend/2,
     fdrecv/1,
+    fd/1,
 
     credsend/1, credsend/2,
     credrecv/1,
@@ -101,7 +102,7 @@ fdrecv(Socket) when is_integer(Socket) ->
     }),
     case procket:recvmsg(Socket, Msg, 0) of
         {ok, 1, _Msghdr} ->
-            fddata(procket:buf(proplists:get_value(msg_control, Res)),
+            data(procket:buf(proplists:get_value(msg_control, Res)),
                 ?SOL_SOCKET, ?SCM_RIGHTS);
         {ok, N, _Msghdr} ->
             {error, {invalid_length, N}};
@@ -109,22 +110,24 @@ fdrecv(Socket) when is_integer(Socket) ->
             Error
     end.
 
-fddata({ok, Buf}, Level, Type) ->
+data({ok, Buf}, Level, Type) ->
     {Cmsg, _} = procket_msg:cmsghdr(Buf),
     case Cmsg of
-        #cmsghdr{level = Level, type = Type} ->
-            fd(Cmsg);
-        _ ->
-            {error, {invalid_cmsghdr, Level, Type}}
+        #cmsghdr{level = Level, type = Type, data = Data} ->
+            {ok, Data};
+        #cmsghdr{level = Level1, type = Type1} ->
+            {error, {invalid_cmsghdr, [
+                        {expected, {Level, Type}},
+                        {received, {Level1, Type1}}
+                        ]}}
     end;
-fddata(Error, _Level, _Type) ->
+data(Error, _Level, _Type) ->
     Error.
 
-fd(#cmsghdr{data = <<FD:4/native-unsigned-integer-unit:8>>}) ->
-    {ok, FD};
-fd(#cmsghdr{data = Data}) ->
-    {error, {invalid_data, Data}}.
-
+fd(<<FD:4/native-unsigned-integer-unit:8>>) ->
+    FD;
+fd(FD) when is_integer(FD) ->
+    <<FD:4/native-unsigned-integer-unit:8>>.
 
 credsend(Socket) when is_integer(Socket) ->
     credsend_1(Socket, <<>>).
@@ -161,24 +164,13 @@ credrecv(Socket) when is_integer(Socket) ->
     }),
     case procket:recvmsg(Socket, Msg, 0) of
         {ok, 1, _Msghdr} ->
-            creddata(procket:buf(proplists:get_value(msg_control, Res)),
+            data(procket:buf(proplists:get_value(msg_control, Res)),
                 ?SOL_SOCKET, ?SCM_CREDENTIALS);
         {ok, N, _Msghdr} ->
             {error, {invalid_length, N}};
         {error, _} = Error ->
             Error
     end.
-
-creddata({ok, Buf}, Level, Type) ->
-    {Cmsg, _} = procket_msg:cmsghdr(Buf),
-    case Cmsg of
-        #cmsghdr{level = Level, type = Type, data = Data} ->
-            {ok, Data};
-        _ ->
-            {error, {invalid_cmsghdr, Level, Type}}
-    end;
-creddata(Error, _Level, _Type) ->
-    Error.
 
 cred(Data) ->
     cred(os:type(), Data).
@@ -194,7 +186,7 @@ cred({unix, linux}, <<
         Uid:4/native-unsigned-integer-unit:8,
         Gid:4/native-unsigned-integer-unit:8
         >>) ->
-    {ok, [{pid, Pid}, {uid, Uid}, {gid, Gid}]};
+    [{pid, Pid}, {uid, Uid}, {gid, Gid}];
 cred({unix, linux}, Fields) when is_list(Fields) ->
     Pid = proplists:get_value(pid, Fields, list_to_integer(os:getpid())),
     Uid = proplists:get_value(uid, Fields, 0), % XXX no way to get uid?
@@ -221,11 +213,7 @@ cred({unix, freebsd}, <<
     Num = Ngroups * 4 * 8,
     <<Gr:Num, _/binary>> = Rest,
     Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
-    {ok, [
-        {version, Version},
-        {uid, Uid},
-        {groups, Groups}
-        ]};
+    [{version, Version}, {uid, Uid}, {groups, Groups}];
 cred({unix, freebsd}, Fields) when is_list(Fields) ->
     Size = erlang:system_info({wordsize, external}),
     Version = proplists:get_value(version, Fields, 0),
@@ -267,12 +255,7 @@ cred({unix, _}, <<
     Num = Ngroups * 4 * 8,
     <<Gr:Num, _/binary>> = Rest,
     Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
-    {ok, [
-        {ref, Ref},
-        {uid, Uid},
-        {gid, Gid},
-        {groups, Groups}
-        ]};
+    [{ref, Ref}, {uid, Uid}, {gid, Gid}, {groups, Groups}];
 cred({unix, _}, Fields) when is_list(Fields) ->
     Ref = proplists:get_value(ref, Fields, 0),
     Uid = proplists:get_value(uid, Fields, 0),
@@ -285,7 +268,4 @@ cred({unix, _}, Fields) when is_list(Fields) ->
       Uid:4/native-unsigned-integer-unit:8,
       Gid:4/native-unsigned-integer-unit:8,
       Ngroups:2/native-signed-integer-unit:8,
-      Gr/binary, 0:Pad>>;
-
-cred(_, #cmsghdr{data = Data}) ->
-    {error, {invalid_data, Data}}.
+      Gr/binary, 0:Pad>>.

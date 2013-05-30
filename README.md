@@ -30,11 +30,12 @@ Examples
         # Back in VM 1
         2> {ok, Socket} = procket:accept(Listen).
         {ok,9}
+
         3> {ok, FD} = gen_unix:fdrecv(Socket).
-        {ok,10}
-        4> procket:read(FD, 1024).
-        {ok,<<69,0,0,84,236,114,0,0,56,1,38,238,173,194,43,69,
-              192,168,213,152,0,0,98,95,21,173,0,...>>}
+        {ok,<<10,0,0,0>>}
+
+        4> gen_unix:fd(FD).
+        10
 
 * Credential passing
 
@@ -61,4 +62,4 @@ Examples
         {ok,<<66,50,0,0,232,3,0,0,232,3,0,0>>}
 
         4> gen_unix:cred(Cred).
-        {ok,[{pid,12866},{uid,1000},{gid,1000}]}
+        [{pid,12866},{uid,1000},{gid,1000}]
