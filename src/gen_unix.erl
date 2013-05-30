@@ -76,11 +76,13 @@ connect(Path) when is_binary(Path), byte_size(Path) < ?UNIX_PATH_MAX ->
     ok = procket:connect(Socket, Sun),
     {ok, Socket}.
 
-fdsend(Socket, FD) when is_integer(Socket), is_list(FD) ->
+fdsend(Socket, FD) when is_list(FD) ->
+    fdsend(Socket, fd(FD));
+fdsend(Socket, FD) when is_integer(Socket), is_binary(FD) ->
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
             level = ?SOL_SOCKET,
             type = ?SCM_RIGHTS,
-            data = fd(FD)
+            data = FD
             }),
     {ok, Msg, _Res} = procket_msg:msghdr(#msghdr{
         name = <<>>,        % must be empty (NULL) or eisconn
@@ -134,7 +136,9 @@ fd(FDs) when is_list(FDs) ->
 credsend(Socket) when is_integer(Socket) ->
     credsend_1(Socket, <<>>).
 
-credsend(Socket, Cred) when is_integer(Socket) ->
+credsend(Socket, Cred) when is_list(Cred) ->
+    credsend(Socket, cred(Cred));
+credsend(Socket, Cred) when is_integer(Socket), is_binary(Cred) ->
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
             level = ?SOL_SOCKET,
             type = ?SCM_CREDENTIALS,
