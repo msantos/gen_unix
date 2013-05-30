@@ -38,7 +38,7 @@
     connect/1,
 
     fdsend/2,
-    fdrecv/1,
+    fdrecv/1, fdrecv/2,
     fd/1,
 
     credsend/1, credsend/2,
@@ -76,11 +76,11 @@ connect(Path) when is_binary(Path), byte_size(Path) < ?UNIX_PATH_MAX ->
     ok = procket:connect(Socket, Sun),
     {ok, Socket}.
 
-fdsend(Socket, FD) when is_integer(Socket), is_integer(FD) ->
+fdsend(Socket, FD) when is_integer(Socket), is_list(FD) ->
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
             level = ?SOL_SOCKET,
             type = ?SCM_RIGHTS,
-            data = <<FD:4/native-unsigned-integer-unit:8>>
+            data = fd(FD)
             }),
     {ok, Msg, _Res} = procket_msg:msghdr(#msghdr{
         name = <<>>,        % must be empty (NULL) or eisconn
@@ -89,11 +89,13 @@ fdsend(Socket, FD) when is_integer(Socket), is_integer(FD) ->
     }),
     procket:sendmsg(Socket, Msg, 0).
 
-fdrecv(Socket) when is_integer(Socket) ->
+fdrecv(Socket) ->
+    fdrecv(Socket, 1).
+fdrecv(Socket, NFD) when is_integer(Socket), is_integer(NFD) ->
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
             level = 0,
             type = 0,
-            data = <<0:4/native-unsigned-integer-unit:8>>
+            data = <<0:(NFD * 4 * 8)>>
             }),
     {ok, Msg, Res} = procket_msg:msghdr(#msghdr{
         name = <<>>,
@@ -124,10 +126,10 @@ data({ok, Buf}, Level, Type) ->
 data(Error, _Level, _Type) ->
     Error.
 
-fd(<<FD:4/native-unsigned-integer-unit:8>>) ->
-    FD;
-fd(FD) when is_integer(FD) ->
-    <<FD:4/native-unsigned-integer-unit:8>>.
+fd(FDs) when is_binary(FDs) ->
+    [ FD || <<FD:4/native-unsigned-integer-unit:8>> <= FDs ];
+fd(FDs) when is_list(FDs) ->
+    << <<FD:4/native-unsigned-integer-unit:8>> || FD <- FDs >>.
 
 credsend(Socket) when is_integer(Socket) ->
     credsend_1(Socket, <<>>).

@@ -17,10 +17,13 @@ Examples
         1> {ok, Socket} = gen_unix:connect("/tmp/test").
         {ok,7}
 
-        2> {ok, FD} = procket:socket(inet,raw,icmp).
+        2> {ok, FD1} = procket:socket(inet,raw,icmp).
         {ok,8}
 
-        3> gen_unix:fdsend(S, FD).
+        3> {ok, FD2} = procket:socket(inet6,raw,icmp6).
+        {ok,9}
+
+        3> gen_unix:fdsend(S, [FD1, FD2]).
         {ok,1,
             <<0,0,0,0,0,0,0,0,96,14,144,114,1,0,0,0,112,14,144,114,
                   16,0,0,0,0,0,...>>}
@@ -31,11 +34,15 @@ Examples
         2> {ok, Socket} = procket:accept(Listen).
         {ok,9}
 
-        3> {ok, FD} = gen_unix:fdrecv(Socket).
-        {ok,<<10,0,0,0>>}
+        3> {ok, FD} = gen_unix:fdrecv(Socket, 2).
+        {ok,<<10,0,0,0,11,0,0,0>>}
 
-        4> gen_unix:fd(FD).
-        10
+        4> [FD1, FD2] = gen_unix:fd(FD).
+        "\n\v" % [10,11]
+
+        5> procket:read(FD1, 1024).
+        {ok,<<69,0,0,84,236,114,0,0,56,1,38,238,173,194,43,69,
+              192,168,213,152,0,0,98,95,21,173,0,...>>}
 
 * Credential passing
 
