@@ -24,9 +24,7 @@ Examples
         {ok,9}
 
         3> gen_unix:fdsend(S, [FD1, FD2]).
-        {ok,1,
-            <<0,0,0,0,0,0,0,0,96,14,144,114,1,0,0,0,112,14,144,114,
-                  16,0,0,0,0,0,...>>}
+        ok
 
         # Open another shell and send a few ping's
 
@@ -57,9 +55,7 @@ Examples
         {ok,7}
 
         2> gen_unix:credsend(S).
-        {ok,1,
-            <<0,0,0,0,0,0,0,0,96,14,224,114,1,0,0,0,0,0,0,0,0,0,0,0,
-              0,0,...>>}
+        ok
 
         # Back in VM 1
         2> {ok, Socket} = procket:accept(Listen).

@@ -89,7 +89,7 @@ fdsend(Socket, FD) when is_integer(Socket), is_binary(FD) ->
         iov = [<<"x">>],    % send 1 byte to differentiate success from EOF
         control = Cmsg
     }),
-    procket:sendmsg(Socket, Msg, 0).
+    sendmsg(Socket, Msg, 0).
 
 fdrecv(Socket) ->
     fdrecv(Socket, 1).
@@ -152,7 +152,7 @@ credsend_1(Socket, Cmsg) when is_integer(Socket) ->
         iov = [<<"c">>],
         control = Cmsg
     }),
-    procket:sendmsg(Socket, Msg, 0).
+    sendmsg(Socket, Msg, 0).
 
 credrecv(Socket) when is_integer(Socket) ->
     ok = procket:setsockopt(Socket, ?SOL_SOCKET, ?SO_PASSCRED,
@@ -278,3 +278,11 @@ cred({unix, _}, Fields) when is_list(Fields) ->
       Gid:4/native-unsigned-integer-unit:8,
       Ngroups:2/native-signed-integer-unit:8,
       Gr/binary, 0:Pad>>.
+
+sendmsg(Socket, Msg, Flags) ->
+    case procket:sendmsg(Socket, Msg, Flags) of
+        {ok, _Bytes, _Msghdr} ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
