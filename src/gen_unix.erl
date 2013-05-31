@@ -168,7 +168,7 @@ credrecv(Socket) when is_integer(Socket) ->
         iov = [<<0:8>>],
         control = Cmsg
     }),
-    case procket:recvmsg(Socket, Msg, 0) of
+    Reply = case procket:recvmsg(Socket, Msg, 0) of
         {ok, 1, _Msghdr} ->
             data(procket:buf(proplists:get_value(msg_control, Res)),
                 ?SOL_SOCKET, ?SCM_CREDENTIALS);
@@ -176,7 +176,10 @@ credrecv(Socket) when is_integer(Socket) ->
             {error, {invalid_length, N}};
         {error, _} = Error ->
             Error
-    end.
+    end,
+    ok = procket:setsockopt(Socket, ?SOL_SOCKET, ?SO_PASSCRED,
+            <<0:4/native-unsigned-integer-unit:8>>),
+    Reply.
 
 cred(Data) ->
     cred(os:type(), Data).
