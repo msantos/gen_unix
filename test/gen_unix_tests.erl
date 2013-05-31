@@ -67,11 +67,33 @@ credpass_test() ->
     error_logger:info_report(Ucred),
     true = is_integer(Uid).
 
+fdpass_test() ->
+    ok = file:make_dir(?SOCKDIR),
+    {ok, Socket0} = gen_unix:listen(?SOCKDIR ++ "/s"),
+    os:cmd("erl -pa ../ebin ../deps/*/ebin -s gen_unix_tests fdsend"),
+    {ok, Socket} = poll(fun() -> procket:accept(Socket0) end),
+    {ok, FDs} = poll(fun() -> gen_unix:fdrecv(Socket, 2) end),
+
+    % Do socket cleanup first
+    ok = procket:close(Socket0),
+    ok = file:delete(?SOCKDIR ++ "/s"),
+    ok = file:del_dir(?SOCKDIR),
+
+    [FD1,FD2] = gen_unix:fd(FDs),
+    true = is_integer(FD1),
+    true = is_integer(FD2),
+
+    {ok, Socket1} = gen_udp:open(0, [binary, {fd, FD1}, {active, false}]),
+    {ok, Socket2} = gen_udp:open(0, [binary, {fd, FD2}, {active, false}]),
+
+    {ok, {{127,0,0,1}, _, <<0,1,2,3,4,5,6,7,8,9>>}} = gen_udp:recv(Socket1, 20),
+    {ok, {{127,0,0,1}, _, <<0,1,2,3,4,5,6,7,8,9>>}} = gen_udp:recv(Socket2, 20).
+
 poll(Fun) ->
     case Fun() of
         {ok, Buf} ->
             {ok, Buf};
-        {error, eagain} -> 
+        {error, eagain} ->
             timer:sleep(10),
             poll(Fun);
         Error ->
@@ -81,3 +103,28 @@ poll(Fun) ->
 credsend() ->
     {ok, Socket} = gen_unix:connect(?SOCKDIR ++ "/s"),
     ok = gen_unix:credsend(Socket).
+
+fdsend() ->
+    {ok, Socket} = gen_unix:connect(?SOCKDIR ++ "/s"),
+
+    % Open 2 random UDP ports
+    {ok, Socket1} = gen_udp:open(0, [{active,false}]),
+    {ok, Socket2} = gen_udp:open(0, [{active,false}]),
+
+    {ok, Port1} = inet:port(Socket1),
+    {ok, Port2} = inet:port(Socket2),
+
+    {ok, FD1} = inet:getfd(Socket1),
+    {ok, FD2} = inet:getfd(Socket2),
+
+    ok = gen_unix:fdsend(Socket, [FD1, FD2]),
+
+    ok = gen_udp:close(Socket1),
+    ok = gen_udp:close(Socket2),
+
+    % Open 2 new sockets
+    {ok, Socket3} = gen_udp:open(0, [{active,false}]),
+    {ok, Socket4} = gen_udp:open(0, [{active,false}]),
+
+    ok = gen_udp:send(Socket3, {127,0,0,1}, Port1, <<0,1,2,3,4,5,6,7,8,9>>),
+    ok = gen_udp:send(Socket4, {127,0,0,1}, Port2, <<0,1,2,3,4,5,6,7,8,9>>).
