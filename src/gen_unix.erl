@@ -219,8 +219,8 @@ cred({unix, freebsd}, <<
         Ngroups:2/native-signed-integer-unit:8,
         Rest/binary
         >>) ->
-    Num = Ngroups * 4 * 8,
-    <<Gr:Num, _/binary>> = Rest,
+    Num = Ngroups * 4,
+    <<Gr:Num/bytes, _/binary>> = Rest,
     Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
     [{version, Version}, {uid, Uid}, {groups, Groups}];
 cred({unix, freebsd}, Fields) when is_list(Fields) ->
@@ -230,7 +230,7 @@ cred({unix, freebsd}, Fields) when is_list(Fields) ->
     Groups = proplists:get_value(groups, Fields, [0]),
     Ngroups = length(Groups),
     Gr = << <<N:4/native-unsigned-integer-unit:8>> || N <- Groups >>,
-    Pad = (16 - Ngroups) * 8,
+    Pad = (16 - Ngroups) * 4 * 8,
     <<Version:4/native-unsigned-integer-unit:8,
       Uid:4/native-unsigned-integer-unit:8,
       Ngroups:2/native-signed-integer-unit:8,
