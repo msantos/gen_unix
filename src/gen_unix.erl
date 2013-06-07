@@ -145,7 +145,15 @@ fd(FDs) when is_list(FDs) ->
     << <<FD:4/native-unsigned-integer-unit:8>> || FD <- FDs >>.
 
 credsend(Socket) when is_integer(Socket) ->
-    credsend_1(Socket, <<>>).
+    case os:type() of
+        {unix,linux} ->
+            % Linux fills in the cmsghdr
+            credsend_1(Socket, <<>>);
+        {unix,_} ->
+	        % FreeBSD requires the cmsghdrcred to be allocated but
+	        % fills in the fields
+            credsend(Socket, [])
+    end.
 
 credsend(Socket, Cred) when is_list(Cred) ->
     credsend(Socket, cred(Cred));
@@ -166,9 +174,8 @@ credsend_1(Socket, Cmsg) when is_integer(Socket) ->
     sendmsg(Socket, Msg, 0).
 
 credrecv(Socket) when is_integer(Socket) ->
-    ok = procket:setsockopt(Socket, sol_socket(), ?SO_PASSCRED,
-            <<1:4/native-unsigned-integer-unit:8>>),
-    Sizeof_ucred = 4 + 4 + 4, % XXX check sizes
+    ok = setsockopt(Socket, credrecv, open),
+    Sizeof_ucred = sizeof(ucred),
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
             level = sol_socket(),
             type = ?SCM_CREDENTIALS,
@@ -188,8 +195,7 @@ credrecv(Socket) when is_integer(Socket) ->
         {error, _} = Error ->
             Error
     end,
-    ok = procket:setsockopt(Socket, sol_socket(), ?SO_PASSCRED,
-            <<0:4/native-unsigned-integer-unit:8>>),
+    ok = setsockopt(Socket, credrecv, close),
     Reply.
 
 cred(Data) ->
@@ -225,27 +231,33 @@ cred({unix, linux}, Fields) when is_list(Fields) ->
 %     gid_t   cmcred_groups[CMGROUP_MAX];     /* groups */
 % };
 cred({unix, freebsd}, <<
-        Version:4/native-unsigned-integer-unit:8,
+        Pid:4/native-unsigned-integer-unit:8,
         Uid:4/native-unsigned-integer-unit:8,
+        Euid:4/native-unsigned-integer-unit:8,
+        Gid:4/native-unsigned-integer-unit:8,
         Ngroups:2/native-signed-integer-unit:8,
         Rest/binary
         >>) ->
-    Pad = procket:wordalign(4 + 4 + 2) * 8,
-    Num = Ngroups * 4,
+    Pad = procket:wordalign(4 + 4 + 4 + 4 + 2) * 8,
+    Num = Ngroups * 4, % gid_t is 4 bytes
     <<_:Pad, Gr:Num/bytes, _/binary>> = Rest,
     Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
-    [{version, Version}, {uid, Uid}, {groups, Groups}];
+    [{pid, Pid}, {uid, Uid}, {euid, Euid}, {gid, Gid}, {groups, Groups}];
 cred({unix, freebsd}, Fields) when is_list(Fields) ->
     Size = erlang:system_info({wordsize, external}),
-    Version = proplists:get_value(version, Fields, 0),
+    Pid = proplists:get_value(pid, Fields, list_to_integer(os:getpid())),
     Uid = proplists:get_value(uid, Fields, 0),
+    Euid = proplists:get_value(euid, Fields, 0),
+    Gid = proplists:get_value(gid, Fields, 0),
     Groups = proplists:get_value(groups, Fields, [0]),
-    Pad0 = procket:wordalign(4 + 4 + 2) * 8,
+    Pad0 = procket:wordalign(4 + 4 + 4 + 4 + 2) * 8,
     Ngroups = length(Groups),
     Gr = << <<N:4/native-unsigned-integer-unit:8>> || N <- Groups >>,
     Pad1 = (16 - Ngroups) * 4 * 8,
-    <<Version:4/native-unsigned-integer-unit:8,
+    <<Pid:4/native-unsigned-integer-unit:8,
       Uid:4/native-unsigned-integer-unit:8,
+      Euid:4/native-unsigned-integer-unit:8,
+      Gid:4/native-unsigned-integer-unit:8,
       Ngroups:2/native-signed-integer-unit:8,
       0:Pad0,
       Gr/binary, 0:Pad1,
@@ -340,3 +352,23 @@ sol_socket() ->
     sol_socket(os:type()).
 sol_socket({unix,linux}) -> 1;
 sol_socket({unix,_}) -> 16#ffff.
+
+sizeof(ucred) ->
+    sizeof(os:type(), ucred).
+sizeof({unix,linux}, ucred) ->
+    4 + 4 + 4;
+sizeof({unix,_}, ucred) ->
+    Len = 4 + 4 + 4 + 4 + 2,
+    Pad = procket:wordalign(Len),
+    Len + Pad + 4 * 16.
+
+setsockopt(Socket, credrecv, Status) ->
+    setsockopt(os:type(), Socket, credrecv, Status).
+setsockopt({unix,linux}, Socket, credrecv, open) ->
+    procket:setsockopt(Socket, sol_socket(), ?SO_PASSCRED,
+        <<1:4/native-unsigned-integer-unit:8>>);
+setsockopt({unix,linux}, Socket, credrecv, close) ->
+    procket:setsockopt(Socket, sol_socket(), ?SO_PASSCRED,
+        <<0:4/native-unsigned-integer-unit:8>>);
+setsockopt({unix,_}, _Socket, credrecv, _) ->
+    ok.
