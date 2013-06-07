@@ -43,14 +43,25 @@
 
     credsend/1, credsend/2,
     credrecv/1,
-    cred/1
+    cred/1,
+
+    scm_rights/0,
+    scm_creds/0,
+    scm_timestamp/0,
+    scm_bintime/0,
+    so_passcred/0,
+    so_peercred/0
     ]).
 
--define(SCM_RIGHTS, 16#01).
--define(SCM_CREDENTIALS, 16#02).
+-define(SCM_RIGHTS, gen_unix:scm_rights()).
+-define(SCM_CREDENTIALS, ?SCM_CREDS).
+-define(SCM_CREDS, gen_unix:scm_creds()).
+-define(SCM_TIMESTAMP, gen_unix:scm_timestamp()).
+-define(SCM_BINTIME, gen_unix:scm_bintime()).
 
 % XXX testing only, move these to procket
--define(SO_PASSCRED, 16).
+-define(SO_PASSCRED, gen_unix:so_passcred()).
+-define(SO_PEERCRED, gen_unix:so_peercred()).
 
 
 listen(Path) when is_list(Path) ->
@@ -80,7 +91,7 @@ fdsend(Socket, FD) when is_list(FD) ->
     fdsend(Socket, fd(FD));
 fdsend(Socket, FD) when is_integer(Socket), is_binary(FD) ->
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
-            level = ?SOL_SOCKET,
+            level = sol_socket(),
             type = ?SCM_RIGHTS,
             data = FD
             }),
@@ -107,7 +118,7 @@ fdrecv(Socket, NFD) when is_integer(Socket), is_integer(NFD) ->
     case procket:recvmsg(Socket, Msg, 0) of
         {ok, 1, _Msghdr} ->
             data(procket:buf(proplists:get_value(msg_control, Res)),
-                ?SOL_SOCKET, ?SCM_RIGHTS);
+                sol_socket(), ?SCM_RIGHTS);
         {ok, N, _Msghdr} ->
             {error, {invalid_length, N}};
         {error, _} = Error ->
@@ -140,7 +151,7 @@ credsend(Socket, Cred) when is_list(Cred) ->
     credsend(Socket, cred(Cred));
 credsend(Socket, Cred) when is_integer(Socket), is_binary(Cred) ->
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
-            level = ?SOL_SOCKET,
+            level = sol_socket(),
             type = ?SCM_CREDENTIALS,
             data = Cred
             }),
@@ -155,11 +166,11 @@ credsend_1(Socket, Cmsg) when is_integer(Socket) ->
     sendmsg(Socket, Msg, 0).
 
 credrecv(Socket) when is_integer(Socket) ->
-    ok = procket:setsockopt(Socket, ?SOL_SOCKET, ?SO_PASSCRED,
+    ok = procket:setsockopt(Socket, sol_socket(), ?SO_PASSCRED,
             <<1:4/native-unsigned-integer-unit:8>>),
     Sizeof_ucred = 4 + 4 + 4, % XXX check sizes
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
-            level = ?SOL_SOCKET,
+            level = sol_socket(),
             type = ?SCM_CREDENTIALS,
             data = <<0:(Sizeof_ucred * 8)>>
             }),
@@ -171,13 +182,13 @@ credrecv(Socket) when is_integer(Socket) ->
     Reply = case procket:recvmsg(Socket, Msg, 0) of
         {ok, 1, _Msghdr} ->
             data(procket:buf(proplists:get_value(msg_control, Res)),
-                ?SOL_SOCKET, ?SCM_CREDENTIALS);
+                sol_socket(), ?SCM_CREDENTIALS);
         {ok, N, _Msghdr} ->
             {error, {invalid_length, N}};
         {error, _} = Error ->
             Error
     end,
-    ok = procket:setsockopt(Socket, ?SOL_SOCKET, ?SO_PASSCRED,
+    ok = procket:setsockopt(Socket, sol_socket(), ?SO_PASSCRED,
             <<0:4/native-unsigned-integer-unit:8>>),
     Reply.
 
@@ -204,14 +215,14 @@ cred({unix, linux}, Fields) when is_list(Fields) ->
       Uid:4/native-unsigned-integer-unit:8,
       Gid:4/native-unsigned-integer-unit:8>>;
 
-% #define XU_NGROUPS  16
-% #define XUCRED_VERSION  0
-% struct xucred {
-%     u_int   cr_version;     /* structure layout version */
-%     uid_t   cr_uid;         /* effective user id */
-%     short   cr_ngroups;     /* number of groups */
-%     gid_t   cr_groups[XU_NGROUPS];  /* groups */
-%     void    *_cr_unused1;       /* compatibility with old ucred */
+% #define CMGROUP_MAX 16
+% struct cmsgcred {
+%     pid_t   cmcred_pid;             /* PID of sending process */
+%     uid_t   cmcred_uid;             /* real UID of sending process */
+%     uid_t   cmcred_euid;            /* effective UID of sending process */
+%     gid_t   cmcred_gid;             /* real GID of sending process */
+%     short   cmcred_ngroups;         /* number or groups */
+%     gid_t   cmcred_groups[CMGROUP_MAX];     /* groups */
 % };
 cred({unix, freebsd}, <<
         Version:4/native-unsigned-integer-unit:8,
@@ -219,8 +230,9 @@ cred({unix, freebsd}, <<
         Ngroups:2/native-signed-integer-unit:8,
         Rest/binary
         >>) ->
+    Pad = procket:wordalign(4 + 4 + 2) * 8,
     Num = Ngroups * 4,
-    <<Gr:Num/bytes, _/binary>> = Rest,
+    <<_:Pad, Gr:Num/bytes, _/binary>> = Rest,
     Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
     [{version, Version}, {uid, Uid}, {groups, Groups}];
 cred({unix, freebsd}, Fields) when is_list(Fields) ->
@@ -228,13 +240,15 @@ cred({unix, freebsd}, Fields) when is_list(Fields) ->
     Version = proplists:get_value(version, Fields, 0),
     Uid = proplists:get_value(uid, Fields, 0),
     Groups = proplists:get_value(groups, Fields, [0]),
+    Pad0 = procket:wordalign(4 + 4 + 2) * 8,
     Ngroups = length(Groups),
     Gr = << <<N:4/native-unsigned-integer-unit:8>> || N <- Groups >>,
-    Pad = (16 - Ngroups) * 4 * 8,
+    Pad1 = (16 - Ngroups) * 4 * 8,
     <<Version:4/native-unsigned-integer-unit:8,
       Uid:4/native-unsigned-integer-unit:8,
       Ngroups:2/native-signed-integer-unit:8,
-      Gr/binary, 0:Pad,
+      0:Pad0,
+      Gr/binary, 0:Pad1,
       0:Size/native-unsigned-integer-unit:8>>;
 
 % OpenBSD
@@ -286,3 +300,43 @@ sendmsg(Socket, Msg, Flags) ->
         {error, _} = Error ->
             Error
     end.
+
+
+
+scm_rights() ->
+    16#01.
+
+scm_creds() ->
+    scm_creds(os:type()).
+scm_creds({unix,linux}) -> 16#02;
+scm_creds({unix,freebsd}) -> 16#03;
+scm_creds({unix,netbsd}) -> 16#04;
+% OpenBSD uses getsockopt(SOL_SOCKET, SO_PEERCRED
+% XXX Return undefined or {error, unsupported}?
+scm_creds(_) -> undefined.
+
+scm_timestamp() ->
+    scm_timestamp(os:type()).
+scm_timestamp({unix,freebsd}) -> 16#02;
+scm_timestamp({unix,netbsd}) -> 16#08;
+scm_timestamp(_) -> undefined.
+
+scm_bintime() ->
+    scm_bintime(os:type()).
+scm_bintime({unix,freebsd}) -> 16#04;
+scm_bintime(_) -> undefined.
+
+so_passcred() ->
+    so_passcred(os:type()).
+so_passcred({unix,linux}) -> 16;
+so_passcred(_) -> undefined.
+
+so_peercred() ->
+    so_peercred(os:type()).
+so_peercred({unix,openbsd}) -> 16#1022;
+so_peercred(_) -> undefined.
+
+sol_socket() ->
+    sol_socket(os:type()).
+sol_socket({unix,linux}) -> 1;
+sol_socket({unix,_}) -> 16#ffff.
