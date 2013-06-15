@@ -59,13 +59,15 @@ credpass_test() ->
     ok = file:delete(?SOCKDIR ++ "/s"),
     ok = file:del_dir(?SOCKDIR),
 
-    % Check the struct ucred is valid; the only common field between
-    % OS'es is the uid. Doesn't appear to be a way natively to get our
-    % uid, so all we do is check that the result is an integer.
+    % Check for common fields
     Ucred = gen_unix:cred(Cred),
     Uid = proplists:get_value(uid, Ucred),
+    Gid = proplists:get_value(gid, Ucred),
+    Pid = proplists:get_value(pid, Ucred),
     error_logger:info_report(Ucred),
-    true = is_integer(Uid).
+    true = is_integer(Uid),
+    true = is_integer(Gid),
+    true = is_integer(Pid).
 
 fdpass_test() ->
     ok = file:make_dir(?SOCKDIR),
