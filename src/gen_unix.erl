@@ -133,7 +133,7 @@ fdrecv(Socket, NFD) when is_integer(Socket), is_integer(NFD) ->
         iov = [<<0:8>>],
         control = Cmsg
     }),
-    case procket:recvmsg(Socket, Msg, 0) of
+    case recvmsg(Socket, Msg, 0) of
         {ok, 1, _Msghdr} ->
             data(procket:buf(proplists:get_value(msg_control, Res)),
                 sol_socket(), ?SCM_RIGHTS);
@@ -204,7 +204,7 @@ credrecv(Socket) when is_integer(Socket) ->
         iov = [<<0:8>>],
         control = Cmsg
     }),
-    Reply = case procket:recvmsg(Socket, Msg, 0) of
+    Reply = case recvmsg(Socket, Msg, 0) of
         {ok, 1, _Msghdr} ->
             data(procket:buf(proplists:get_value(msg_control, Res)),
                 sol_socket(), ?SCM_CREDENTIALS);
@@ -396,9 +396,35 @@ poll(Pid, Fun) ->
     end.
 
 sendmsg(Socket, Msg, Flags) ->
-    case procket:sendmsg(Socket, Msg, Flags) of
-        {ok, _Bytes, _Msghdr} ->
+    sendmsg(Socket, Msg, Flags, infinity).
+
+sendmsg(Socket, Msg, Flags, Timeout) ->
+    Self = self(),
+    Fun = fun() -> procket:sendmsg(Socket, Msg, Flags) end,
+    Pid = spawn(fun() -> poll(Self, Fun) end),
+    receive
+        {gen_unix, {ok, _Bytes, _Msghdr}} ->
             ok;
-        {error, _} = Error ->
+        {gen_unix, Error} ->
             Error
+    after
+        Timeout ->
+            exit(Pid, kill),
+            {error, eintr}
+    end.
+
+recvmsg(Socket, Msg, Flags) ->
+    recvmsg(Socket, Msg, Flags, infinity).
+
+recvmsg(Socket, Msg, Flags, Timeout) ->
+    Self = self(),
+    Fun = fun() -> procket:recvmsg(Socket, Msg, Flags) end,
+    Pid = spawn(fun() -> poll(Self, Fun) end),
+    receive
+        {gen_unix, Any} ->
+            Any
+    after
+        Timeout ->
+            exit(Pid, kill),
+            {error, eintr}
     end.

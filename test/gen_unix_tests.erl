@@ -52,7 +52,7 @@ credpass_test() ->
             os:cmd("erl -pa ../ebin ../deps/*/ebin -s gen_unix_tests credsend")
             end),
     {ok, Socket} = gen_unix:accept(Socket0),
-    {ok, Cred} = poll(fun() -> gen_unix:credrecv(Socket) end),
+    {ok, Cred} = gen_unix:credrecv(Socket),
 
     % Do socket cleanup first
     ok = procket:close(Socket0),
@@ -72,7 +72,7 @@ fdpass_test() ->
     {ok, Socket0} = gen_unix:listen(?SOCKDIR ++ "/s"),
     os:cmd("erl -pa ../ebin ../deps/*/ebin -s gen_unix_tests fdsend"),
     {ok, Socket} = gen_unix:accept(Socket0),
-    {ok, FDs} = poll(fun() -> gen_unix:fdrecv(Socket, 2) end),
+    {ok, FDs} = gen_unix:fdrecv(Socket, 2),
 
     % Do socket cleanup first
     ok = procket:close(Socket0),
@@ -88,17 +88,6 @@ fdpass_test() ->
 
     {ok, {{127,0,0,1}, _, <<0,1,2,3,4,5,6,7,8,9>>}} = gen_udp:recv(Socket1, 20),
     {ok, {{127,0,0,1}, _, <<0,1,2,3,4,5,6,7,8,9>>}} = gen_udp:recv(Socket2, 20).
-
-poll(Fun) ->
-    case Fun() of
-        {ok, Buf} ->
-            {ok, Buf};
-        {error, eagain} ->
-            timer:sleep(10),
-            poll(Fun);
-        Error ->
-            Error
-    end.
 
 credsend() ->
     {ok, Socket} = gen_unix:connect(?SOCKDIR ++ "/s"),
