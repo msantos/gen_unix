@@ -37,6 +37,8 @@
     listen/1,
     connect/1,
 
+    accept/1, accept/2,
+
     fdsend/2,
     fdrecv/1, fdrecv/2,
     fd/1,
@@ -86,6 +88,22 @@ connect(Path) when is_binary(Path), byte_size(Path) < ?UNIX_PATH_MAX ->
             0:((procket:unix_path_max()-Len)*8)>>,
     ok = procket:connect(Socket, Sun),
     {ok, Socket}.
+
+accept(FD) ->
+    accept(FD, infinity).
+
+accept(FD, Timeout) ->
+    Self = self(),
+    Fun = fun() -> procket:accept(FD) end,
+    Pid = spawn(fun() -> poll(Self, Fun) end),
+    receive
+        {gen_unix, Any} ->
+            Any
+    after
+        Timeout ->
+            exit(Pid, kill),
+            {error, eintr}
+    end.
 
 fdsend(Socket, FD) when is_list(FD) ->
     fdsend(Socket, fd(FD));
@@ -305,15 +323,6 @@ cred({unix, _}, Fields) when is_list(Fields) ->
       Ngroups:2/native-signed-integer-unit:8,
       Gr/binary, 0:Pad>>.
 
-sendmsg(Socket, Msg, Flags) ->
-    case procket:sendmsg(Socket, Msg, Flags) of
-        {ok, _Bytes, _Msghdr} ->
-            ok;
-        {error, _} = Error ->
-            Error
-    end.
-
-
 
 scm_rights() ->
     16#01.
@@ -372,3 +381,24 @@ setsockopt({unix,linux}, Socket, credrecv, close) ->
         <<0:4/native-unsigned-integer-unit:8>>);
 setsockopt({unix,_}, _Socket, credrecv, _) ->
     ok.
+
+poll(Pid, Fun) ->
+    case Fun() of
+        {ok, _} = Buf ->
+            Pid ! {gen_unix, Buf};
+        {ok, _, _} = Buf ->
+            Pid ! {gen_unix, Buf};
+        {error, eagain} ->
+            timer:sleep(10),
+            poll(Pid, Fun);
+        Error ->
+            Pid ! {gen_unix, Error}
+    end.
+
+sendmsg(Socket, Msg, Flags) ->
+    case procket:sendmsg(Socket, Msg, Flags) of
+        {ok, _Bytes, _Msghdr} ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.

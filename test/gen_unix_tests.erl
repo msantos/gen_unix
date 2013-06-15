@@ -51,7 +51,7 @@ credpass_test() ->
     spawn(fun() ->
             os:cmd("erl -pa ../ebin ../deps/*/ebin -s gen_unix_tests credsend")
             end),
-    {ok, Socket} = poll(fun() -> procket:accept(Socket0) end),
+    {ok, Socket} = gen_unix:accept(Socket0),
     {ok, Cred} = poll(fun() -> gen_unix:credrecv(Socket) end),
 
     % Do socket cleanup first
@@ -71,7 +71,7 @@ fdpass_test() ->
     ok = file:make_dir(?SOCKDIR),
     {ok, Socket0} = gen_unix:listen(?SOCKDIR ++ "/s"),
     os:cmd("erl -pa ../ebin ../deps/*/ebin -s gen_unix_tests fdsend"),
-    {ok, Socket} = poll(fun() -> procket:accept(Socket0) end),
+    {ok, Socket} = gen_unix:accept(Socket0),
     {ok, FDs} = poll(fun() -> gen_unix:fdrecv(Socket, 2) end),
 
     % Do socket cleanup first

@@ -29,7 +29,7 @@ Examples
         # Open another shell and send a few ping's
 
         # Back in VM 1
-        2> {ok, Socket} = procket:accept(Listen).
+        2> {ok, Socket} = gen_unix:accept(Listen).
         {ok,9}
 
         3> {ok, FD} = gen_unix:fdrecv(Socket, 2).
@@ -58,7 +58,7 @@ Examples
         ok
 
         # Back in VM 1
-        2> {ok, Socket} = procket:accept(Listen).
+        2> {ok, Socket} = gen_unix:accept(Listen).
         {ok,9}
 
         3> {ok, Cred} = gen_unix:credrecv(Socket).
