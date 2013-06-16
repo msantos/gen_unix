@@ -36,6 +36,7 @@
 -export([
     listen/1,
     connect/1,
+    close/1,
 
     accept/1, accept/2,
 
@@ -88,6 +89,9 @@ connect(Path) when is_binary(Path), byte_size(Path) < ?UNIX_PATH_MAX ->
             0:((procket:unix_path_max()-Len)*8)>>,
     ok = procket:connect(Socket, Sun),
     {ok, Socket}.
+
+close(FD) ->
+    procket:close(FD).
 
 accept(FD) ->
     accept(FD, infinity).
