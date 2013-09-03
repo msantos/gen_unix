@@ -23,7 +23,7 @@ Examples
         3> {ok, FD2} = procket:socket(inet6,raw,icmp6).
         {ok,9}
 
-        3> gen_unix:fdsend(S, [FD1, FD2]).
+        3> gen_unix:fdsend(Socket, [FD1, FD2]).
         ok
 
         # Open another shell and send a few ping's
@@ -54,7 +54,7 @@ Examples
         1> {ok, Socket} = gen_unix:connect("/tmp/test").
         {ok,7}
 
-        2> gen_unix:credsend(S).
+        2> gen_unix:credsend(Socket).
         ok
 
         # Back in VM 1
