@@ -97,16 +97,11 @@ accept(FD) ->
     accept(FD, infinity).
 
 accept(FD, Timeout) ->
-    Self = self(),
-    Fun = fun() -> procket:accept(FD) end,
-    Pid = spawn(fun() -> poll(Self, Fun) end),
-    receive
-        {gen_unix, Any} ->
-            Any
-    after
-        Timeout ->
-            exit(Pid, kill),
-            {error, eintr}
+    case poll(FD, Timeout) of
+        ok ->
+            procket:accept(FD);
+        Error ->
+            Error
     end.
 
 fdsend(Socket, FD) ->
@@ -398,43 +393,21 @@ setsockopt({unix,linux}, Socket, credrecv, close) ->
 setsockopt({unix,_}, _Socket, credrecv, _) ->
     ok.
 
-poll(Pid, Fun) ->
-    case Fun() of
-        {ok, _} = Buf ->
-            Pid ! {gen_unix, Buf};
-        {ok, _, _} = Buf ->
-            Pid ! {gen_unix, Buf};
-        {error, eagain} ->
-            timer:sleep(10),
-            poll(Pid, Fun);
-        Error ->
-            Pid ! {gen_unix, Error}
-    end.
+poll(FD, Timeout) ->
+    inert:poll(FD, [{timeout, Timeout}]).
 
-sendmsg(Socket, Msg, Flags, Timeout) ->
-    Self = self(),
-    Fun = fun() -> procket:sendmsg(Socket, Msg, Flags) end,
-    Pid = spawn(fun() -> poll(Self, Fun) end),
-    receive
-        {gen_unix, {ok, _Bytes, _Msghdr}} ->
+sendmsg(Socket, Msg, Flags, _Timeout) ->
+    case procket:sendmsg(Socket, Msg, Flags) of
+        {ok, _Bytes, _Msghdr} ->
             ok;
-        {gen_unix, Error} ->
+        Error ->
             Error
-    after
-        Timeout ->
-            exit(Pid, kill),
-            {error, eintr}
     end.
 
 recvmsg(Socket, Msg, Flags, Timeout) ->
-    Self = self(),
-    Fun = fun() -> procket:recvmsg(Socket, Msg, Flags) end,
-    Pid = spawn(fun() -> poll(Self, Fun) end),
-    receive
-        {gen_unix, Any} ->
-            Any
-    after
-        Timeout ->
-            exit(Pid, kill),
-            {error, eintr}
+    case poll(Socket, Timeout) of
+        ok ->
+            procket:recvmsg(Socket, Msg, Flags);
+        Error ->
+            Error
     end.
