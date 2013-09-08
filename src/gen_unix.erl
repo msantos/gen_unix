@@ -204,11 +204,10 @@ credrecv(Socket) ->
 credrecv(Socket, Options) when is_integer(Socket), is_list(Options) ->
     Timeout = proplists:get_value(timeout, Options, infinity),
     ok = setsockopt(Socket, credrecv, open),
-    Sizeof_ucred = sizeof(ucred),
     Cmsg = procket_msg:cmsghdr(#cmsghdr{
             level = sol_socket(),
             type = ?SCM_CREDENTIALS,
-            data = <<0:(Sizeof_ucred * 8)>>
+            data = <<0:(sizeof(ucred) * 8)>>
             }),
     {ok, Msg, Res} = procket_msg:msghdr(#msghdr{
         name = <<>>,
