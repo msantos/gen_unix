@@ -38,15 +38,18 @@
     connect/1,
     close/1,
 
-    accept/1, accept/2,
+    accept/1,
 
-    fdsend/2, fdsend/3,
-    fdrecv/1, fdrecv/2, fdrecv/3,
+    msg/1,
+
+    fdrecv/2,
     fd/1,
 
-    credsend/1, credsend/2, credsend/3,
-    credrecv/1, credrecv/2,
+    credrecv/2,
     cred/1,
+
+    sendmsg/2, sendmsg/3,
+    recvmsg/2, recvmsg/3,
 
     scm_rights/0,
     scm_creds/0,
@@ -94,137 +97,91 @@ close(FD) ->
     procket:close(FD).
 
 accept(FD) ->
-    accept(FD, infinity).
+    procket:accept(FD).
 
-accept(FD, Timeout) ->
-    case poll(FD, Timeout) of
-        ok ->
-            procket:accept(FD);
-        Error ->
-            Error
-    end.
+cmsghdr(Level, Type, Data) when is_integer(Level), is_integer(Type), is_binary(Data) ->
+    procket_msg:cmsghdr(#cmsghdr{
+            level = Level,
+            type = Type,
+            data = Data
+            }).
 
-fdsend(Socket, FD) ->
-    fdsend(Socket, FD, []).
-fdsend(Socket, FD, Options) when is_list(FD) ->
-    fdsend(Socket, fd(FD), Options);
-fdsend(Socket, FD, Options) when is_integer(Socket), is_binary(FD), is_list(Options) ->
-    Timeout = proplists:get_value(timeout, Options, infinity),
-    Cmsg = procket_msg:cmsghdr(#cmsghdr{
-            level = sol_socket(),
-            type = ?SCM_RIGHTS,
-            data = FD
-            }),
-    {ok, Msg, _Res} = procket_msg:msghdr(#msghdr{
-        name = <<>>,        % must be empty (NULL) or eisconn
-        iov = [<<"x">>],    % send 1 byte to differentiate success from EOF
-        control = Cmsg
-    }),
-    sendmsg(Socket, Msg, 0, Timeout).
-
-fdrecv(Socket) ->
-    fdrecv(Socket, 1, []).
-fdrecv(Socket, NFD) ->
-    fdrecv(Socket, NFD, []).
-fdrecv(Socket, NFD, Options) when is_integer(Socket), is_integer(NFD), is_list(Options) ->
-    Timeout = proplists:get_value(timeout, Options, infinity),
-    Cmsg = procket_msg:cmsghdr(#cmsghdr{
-            level = 0,
-            type = 0,
-            data = <<0:(NFD * 4 * 8)>>
-            }),
+msghdr(Name, Iov, Cmsg) ->
     {ok, Msg, Res} = procket_msg:msghdr(#msghdr{
-        name = <<>>,
-        iov = [<<0:8>>],
+        name = Name,        % must be empty (NULL) or eisconn
+        iov = Iov,          % send 1 byte to differentiate success from EOF
         control = Cmsg
     }),
-    case recvmsg(Socket, Msg, 0, Timeout) of
+    {ok, {msghdr, Msg, Res}}.
+
+msg({fd, send, FD}) when is_integer(FD); is_list(FD) ->
+    Cmsg = cmsghdr(sol_socket(), ?SCM_RIGHTS, fd(FD)),
+    msghdr(<<>>, [<<"x">>], Cmsg);
+msg({cred, send}) ->
+    Cmsg = case os:type() of
+        {unix,linux} ->
+            % Linux fills in the cmsghdr
+            <<>>;
+        {unix,_} ->
+	        % FreeBSD requires the cmsghdrcred to be allocated but
+	        % fills in the fields
+            cmsghdr(sol_socket(), ?SCM_CREDENTIALS, cred([]))
+    end,
+    msghdr(<<>>, [<<"c">>], Cmsg);
+
+msg({fd, recv}) ->
+    msg({fd, recv, 1});
+msg({fd, recv, N}) when is_integer(N) ->
+    Cmsg = cmsghdr(sol_socket(), 0, <<0:(N * 4 * 8)>>),
+    msghdr(<<>>, [<<0:8>>], Cmsg);
+msg({cred, recv}) ->
+    Cmsg = cmsghdr(sol_socket(), ?SCM_CREDENTIALS, <<0:(sizeof(ucred) * 8)>>),
+    msghdr(<<>>, [<<0:8>>], Cmsg).
+
+fdrecv(Socket, {msghdr, Msg, Res}) when is_integer(Socket), is_binary(Msg), is_list(Res) ->
+    case recvmsg(Socket, Msg) of
         {ok, 1, _Msghdr} ->
-            data(procket:buf(proplists:get_value(msg_control, Res)),
-                sol_socket(), ?SCM_RIGHTS);
-        {ok, N, _Msghdr} ->
-            {error, {invalid_length, N}};
+            Control = proplists:get_value(msg_control, Res),
+            {ok, Buf} = procket:buf(Control),
+            {ok, Data} = cmsghdr_data(Buf, sol_socket(), ?SCM_RIGHTS),
+            {ok, fd(Data)};
+        % XXX EOF?
+        {ok, 0, _Msghdr} ->
+            {ok, []};
         {error, _} = Error ->
             Error
     end.
 
-data({ok, Buf}, Level, Type) ->
-    {Cmsg, _} = procket_msg:cmsghdr(Buf),
-    case Cmsg of
-        #cmsghdr{level = Level, type = Type, data = Data} ->
-            {ok, Data};
-        #cmsghdr{level = Level1, type = Type1} ->
-            {error, {invalid_cmsghdr, [
-                        {expected, {Level, Type}},
-                        {received, {Level1, Type1}}
-                        ]}}
-    end;
-data(Error, _Level, _Type) ->
-    Error.
-
-fd(FDs) when is_binary(FDs) ->
-    [ FD || <<FD:4/native-unsigned-integer-unit:8>> <= FDs ];
-fd(FDs) when is_list(FDs) ->
-    << <<FD:4/native-unsigned-integer-unit:8>> || FD <- FDs >>.
-
-credsend(Socket) ->
-    credsend(Socket, []).
-credsend(Socket, Options) ->
-    case os:type() of
-        {unix,linux} ->
-            % Linux fills in the cmsghdr
-            credsend_1(Socket, <<>>, Options);
-        {unix,_} ->
-	        % FreeBSD requires the cmsghdrcred to be allocated but
-	        % fills in the fields
-            credsend(Socket, [], Options)
-    end.
-
-credsend(Socket, Cred, Options) when is_list(Cred) ->
-    credsend(Socket, cred(Cred), Options);
-credsend(Socket, Cred, Options) when is_binary(Cred) ->
-    Cmsg = procket_msg:cmsghdr(#cmsghdr{
-            level = sol_socket(),
-            type = ?SCM_CREDENTIALS,
-            data = Cred
-            }),
-    credsend_1(Socket, Cmsg, Options).
-
-credsend_1(Socket, Cmsg, Options) when is_integer(Socket), is_list(Options) ->
-    Timeout = proplists:get_value(timeout, Options, infinity),
-    {ok, Msg, _Res} = procket_msg:msghdr(#msghdr{
-        name = <<>>,
-        iov = [<<"c">>],
-        control = Cmsg
-    }),
-    sendmsg(Socket, Msg, 0, Timeout).
-
-credrecv(Socket) ->
-    credrecv(Socket, []).
-credrecv(Socket, Options) when is_integer(Socket), is_list(Options) ->
-    Timeout = proplists:get_value(timeout, Options, infinity),
+credrecv(Socket, {msghdr, Msg, Res}) when is_integer(Socket) ->
     ok = setsockopt(Socket, credrecv, open),
-    Cmsg = procket_msg:cmsghdr(#cmsghdr{
-            level = sol_socket(),
-            type = ?SCM_CREDENTIALS,
-            data = <<0:(sizeof(ucred) * 8)>>
-            }),
-    {ok, Msg, Res} = procket_msg:msghdr(#msghdr{
-        name = <<>>,
-        iov = [<<0:8>>],
-        control = Cmsg
-    }),
-    Reply = case recvmsg(Socket, Msg, 0, Timeout) of
+    Reply = case recvmsg(Socket, Msg) of
         {ok, 1, _Msghdr} ->
-            data(procket:buf(proplists:get_value(msg_control, Res)),
-                sol_socket(), ?SCM_CREDENTIALS);
-        {ok, N, _Msghdr} ->
-            {error, {invalid_length, N}};
+            Control = proplists:get_value(msg_control, Res),
+            {ok, Buf} = procket:buf(Control),
+            {ok, Data} = cmsghdr_data(Buf, sol_socket(), ?SCM_CREDENTIALS),
+            {ok, cred(Data)};
+        % XXX EOF?
+        {ok, 0, _Msghdr} ->
+            {ok, []};
         {error, _} = Error ->
             Error
     end,
     ok = setsockopt(Socket, credrecv, close),
     Reply.
+
+cmsghdr_data(Buf, Level, Type) ->
+    {Cmsg, _} = procket_msg:cmsghdr(Buf),
+    case Cmsg of
+        #cmsghdr{level = Level, type = Type, data = Data} ->
+            {ok, Data};
+        _ ->
+            {error, einval}
+    end.
+
+fd(FDs) when is_binary(FDs) ->
+    [ FD || <<FD:4/native-unsigned-integer-unit:8>> <= FDs ];
+fd(FDs) when is_list(FDs) ->
+    << <<FD:4/native-unsigned-integer-unit:8>> || FD <- FDs >>.
 
 cred(Data) ->
     cred(os:type(), Data).
@@ -392,10 +349,9 @@ setsockopt({unix,linux}, Socket, credrecv, close) ->
 setsockopt({unix,_}, _Socket, credrecv, _) ->
     ok.
 
-poll(FD, Timeout) ->
-    inert:poll(FD, [{timeout, Timeout}]).
-
-sendmsg(Socket, Msg, Flags, _Timeout) ->
+sendmsg(Socket, Msg) ->
+    sendmsg(Socket, Msg, 0).
+sendmsg(Socket, {msghdr, Msg, _Res}, Flags) ->
     case procket:sendmsg(Socket, Msg, Flags) of
         {ok, _Bytes, _Msghdr} ->
             ok;
@@ -403,10 +359,7 @@ sendmsg(Socket, Msg, Flags, _Timeout) ->
             Error
     end.
 
-recvmsg(Socket, Msg, Flags, Timeout) ->
-    case poll(Socket, Timeout) of
-        ok ->
-            procket:recvmsg(Socket, Msg, Flags);
-        Error ->
-            Error
-    end.
+recvmsg(Socket, Msg) ->
+    recvmsg(Socket, Msg, 0).
+recvmsg(Socket, Msg, Flags) ->
+    procket:recvmsg(Socket, Msg, Flags).
