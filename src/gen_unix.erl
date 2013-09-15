@@ -40,12 +40,11 @@
 
     accept/1,
 
+    setsockopt/2,
+
     msg/1,
 
-    fdrecv/2,
     fd/1,
-
-    credrecv/2,
     cred/1,
 
     sendmsg/2, sendmsg/3,
@@ -136,44 +135,33 @@ msg({fdrecv, N}) when is_integer(N) ->
     msghdr(<<>>, [<<0:8>>], Cmsg);
 msg(credrecv) ->
     Cmsg = cmsghdr(sol_socket(), ?SCM_CREDENTIALS, <<0:(sizeof(ucred) * 8)>>),
-    msghdr(<<>>, [<<0:8>>], Cmsg).
+    msghdr(<<>>, [<<0:8>>], Cmsg);
 
-fdrecv(Socket, {msghdr, Msg, Res}) when is_integer(Socket), is_binary(Msg), is_list(Res) ->
-    case recvmsg(Socket, Msg) of
-        {ok, 1, _Msghdr} ->
-            Control = proplists:get_value(msg_control, Res),
-            {ok, Buf} = procket:buf(Control),
-            {ok, Data} = cmsghdr_data(Buf, sol_socket(), ?SCM_RIGHTS),
-            {ok, fd(Data)};
-        % XXX EOF?
-        {ok, 0, _Msghdr} ->
-            {ok, []};
-        {error, _} = Error ->
+msg({msghdr, Msg, Res}) when is_binary(Msg), is_list(Res) ->
+    Control = proplists:get_value(msg_control, Res),
+    msg_buf(Control).
+
+msg_buf(Control) ->
+    case procket:buf(Control) of
+        {ok, Buf} ->
+            msg_data(Buf);
+        Error ->
             Error
     end.
 
-credrecv(Socket, {msghdr, Msg, Res}) when is_integer(Socket) ->
-    ok = setsockopt(Socket, credrecv, open),
-    Reply = case recvmsg(Socket, Msg) of
-        {ok, 1, _Msghdr} ->
-            Control = proplists:get_value(msg_control, Res),
-            {ok, Buf} = procket:buf(Control),
-            {ok, Data} = cmsghdr_data(Buf, sol_socket(), ?SCM_CREDENTIALS),
-            {ok, cred(Data)};
-        % XXX EOF?
-        {ok, 0, _Msghdr} ->
-            {ok, []};
-        {error, _} = Error ->
-            Error
-    end,
-    ok = setsockopt(Socket, credrecv, close),
-    Reply.
-
-cmsghdr_data(Buf, Level, Type) ->
+msg_data(Buf) ->
     {Cmsg, _} = procket_msg:cmsghdr(Buf),
+    SOL_SOCKET = sol_socket(),
+    SCM_RIGHTS = ?SCM_RIGHTS,
+    SCM_CREDENTIALS = ?SCM_CREDENTIALS,
     case Cmsg of
-        #cmsghdr{level = Level, type = Type, data = Data} ->
-            {ok, Data};
+        #cmsghdr{level = SOL_SOCKET, type = SCM_RIGHTS, data = Data} ->
+            {ok, fd(Data)};
+        #cmsghdr{level = SOL_SOCKET, type = SCM_CREDENTIALS, data = Data} ->
+            {ok, cred(Data)};
+        #cmsghdr{level = SOL_SOCKET, type = Type, data = Data} ->
+            error_logger:info_report([{type, Type}, {data, Data}]),
+            {error, esocktnosupport};
         _ ->
             {error, einval}
     end.
@@ -338,7 +326,7 @@ sol_socket() ->
             {{unix,linux}, 1}
         ], 16#ffff).
 
-setsockopt(Socket, credrecv, Status) ->
+setsockopt(Socket, {credrecv, Status}) ->
     setsockopt(os:type(), Socket, credrecv, Status).
 setsockopt({unix,linux}, Socket, credrecv, open) ->
     procket:setsockopt(Socket, sol_socket(), ?SO_PASSCRED,
@@ -353,7 +341,7 @@ sendmsg(Socket, Msg) ->
     sendmsg(Socket, Msg, 0).
 sendmsg(Socket, {msghdr, Msg, _Res}, Flags) ->
     case procket:sendmsg(Socket, Msg, Flags) of
-        {ok, _Bytes, _Msghdr} ->
+        {ok, _N, _Msghdr} ->
             ok;
         Error ->
             Error
@@ -361,5 +349,10 @@ sendmsg(Socket, {msghdr, Msg, _Res}, Flags) ->
 
 recvmsg(Socket, Msg) ->
     recvmsg(Socket, Msg, 0).
-recvmsg(Socket, Msg, Flags) ->
-    procket:recvmsg(Socket, Msg, Flags).
+recvmsg(Socket, {msghdr, Msg, _Res}, Flags) ->
+    case procket:recvmsg(Socket, Msg, Flags) of
+        {ok, N, _Msghdr} ->
+            {ok, N};
+        Error ->
+            Error
+    end.
