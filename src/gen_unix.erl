@@ -114,10 +114,10 @@ msghdr(Name, Iov, Cmsg) ->
     }),
     {ok, {msghdr, Msg, Res}}.
 
-msg({fd, send, FD}) when is_integer(FD); is_list(FD) ->
+msg({fdsend, FD}) when is_integer(FD); is_list(FD) ->
     Cmsg = cmsghdr(sol_socket(), ?SCM_RIGHTS, fd(FD)),
     msghdr(<<>>, [<<"x">>], Cmsg);
-msg({cred, send}) ->
+msg(credsend) ->
     Cmsg = case os:type() of
         {unix,linux} ->
             % Linux fills in the cmsghdr
@@ -129,12 +129,12 @@ msg({cred, send}) ->
     end,
     msghdr(<<>>, [<<"c">>], Cmsg);
 
-msg({fd, recv}) ->
-    msg({fd, recv, 1});
-msg({fd, recv, N}) when is_integer(N) ->
+msg(fdrecv) ->
+    msg({fdrecv, 1});
+msg({fdrecv, N}) when is_integer(N) ->
     Cmsg = cmsghdr(sol_socket(), 0, <<0:(N * 4 * 8)>>),
     msghdr(<<>>, [<<0:8>>], Cmsg);
-msg({cred, recv}) ->
+msg(credrecv) ->
     Cmsg = cmsghdr(sol_socket(), ?SCM_CREDENTIALS, <<0:(sizeof(ucred) * 8)>>),
     msghdr(<<>>, [<<0:8>>], Cmsg).
 
