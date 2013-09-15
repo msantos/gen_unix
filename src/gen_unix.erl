@@ -290,45 +290,6 @@ cred({unix, _}, Fields) when is_list(Fields) ->
       Ngroups:2/native-signed-integer-unit:8,
       Gr/binary, 0:Pad>>.
 
-
-scm_rights() ->
-    16#01.
-
-scm_creds() ->
-    scm_creds(os:type()).
-scm_creds({unix,linux}) -> 16#02;
-scm_creds({unix,freebsd}) -> 16#03;
-scm_creds({unix,netbsd}) -> 16#04;
-% OpenBSD uses getsockopt(SOL_SOCKET, SO_PEERCRED
-% XXX Return undefined or {error, unsupported}?
-scm_creds(_) -> undefined.
-
-scm_timestamp() ->
-    scm_timestamp(os:type()).
-scm_timestamp({unix,freebsd}) -> 16#02;
-scm_timestamp({unix,netbsd}) -> 16#08;
-scm_timestamp(_) -> undefined.
-
-scm_bintime() ->
-    scm_bintime(os:type()).
-scm_bintime({unix,freebsd}) -> 16#04;
-scm_bintime(_) -> undefined.
-
-so_passcred() ->
-    so_passcred(os:type()).
-so_passcred({unix,linux}) -> 16;
-so_passcred(_) -> undefined.
-
-so_peercred() ->
-    so_peercred(os:type()).
-so_peercred({unix,openbsd}) -> 16#1022;
-so_peercred(_) -> undefined.
-
-sol_socket() ->
-    sol_socket(os:type()).
-sol_socket({unix,linux}) -> 1;
-sol_socket({unix,_}) -> 16#ffff.
-
 sizeof(ucred) ->
     sizeof(os:type(), ucred).
 sizeof({unix,linux}, ucred) ->
@@ -337,6 +298,45 @@ sizeof({unix,_}, ucred) ->
     Len = 4 + 4 + 4 + 4 + 2,
     Pad = procket:wordalign(Len),
     Len + Pad + 4 * 16.
+
+
+scm_rights() ->
+    16#01.
+
+% OpenBSD uses getsockopt(SOL_SOCKET, SO_PEERCRED
+% XXX Return undefined or {error, unsupported}?
+scm_creds() ->
+    proplists:get_value(os:type(), [
+            {{unix,linux}, 16#02},
+            {{unix,freebsd}, 16#03},
+            {{unix,netbsd}, 16#04}
+        ]).
+
+scm_timestamp() ->
+    proplists:get_value(os:type(), [
+            {{unix,freebsd}, 16#02},
+            {{unix,netbsd}, 16#08}
+        ]).
+
+scm_bintime() ->
+    proplists:get_value(os:type(), [
+            {{unix,freebsd}, 16#04}
+        ]).
+
+so_passcred() ->
+    proplists:get_value(os:type(), [
+            {{unix,linux}, 16}
+        ]).
+
+so_peercred() ->
+    proplists:get_value(os:type(), [
+            {{unix,openbsd}, 16#1022}
+        ]).
+
+sol_socket() ->
+    proplists:get_value(os:type(), [
+            {{unix,linux}, 1}
+        ], 16#ffff).
 
 setsockopt(Socket, credrecv, Status) ->
     setsockopt(os:type(), Socket, credrecv, Status).
