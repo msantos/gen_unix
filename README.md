@@ -23,7 +23,12 @@ Examples
         3> {ok, FD2} = procket:socket(inet6,raw,icmp6).
         {ok,9}
 
-        3> gen_unix:fdsend(Socket, [FD1, FD2]).
+        4> {ok, Msg} = gen_unix:msg({fdsend, [FD1,FD2]}).
+        {ok,{msghdr,<<0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,160,114,0,
+                      232,20,127,0,0,1,...>>,
+                      [{msg_iov,<<>>},{msg_control,<<>>},{iov,[<<>>]}]}}
+
+        5> gen_unix:sendmsg(Socket, Msg).
         ok
 
         # Open another shell and send a few ping's
@@ -32,11 +37,17 @@ Examples
         2> {ok, Socket} = gen_unix:accept(Listen).
         {ok,9}
 
-        3> {ok, FD} = gen_unix:fdrecv(Socket, 2).
-        {ok,<<10,0,0,0,11,0,0,0>>}
+        3> {ok, Msg} = gen_unix:msg({fdrecv, 2}).
+        {ok,{msghdr,<<0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,160,114,0,
+                      128,198,127,0,0,1,...>>,
+                      [{msg_iov,<<>>},{msg_control,<<>>},{iov,[<<>>]}]}}
 
-        4> [FD1, FD2] = gen_unix:fd(FD).
-        "\n\v" % [10,11]
+        4> gen_unix:recvmsg(Socket, Msg).
+        {ok,1}
+
+        % [8,9]
+        5> {ok, [FD1, FD2]} = gen_unix:msg(Msg).
+        {ok,"\t\n"}
 
         5> procket:read(FD1, 1024).
         {ok,<<69,0,0,84,236,114,0,0,56,1,38,238,173,194,43,69,
@@ -54,15 +65,31 @@ Examples
         1> {ok, Socket} = gen_unix:connect("/tmp/test").
         {ok,7}
 
-        2> gen_unix:credsend(Socket).
+        2> {ok, Msg} = gen_unix:msg(credsend).
+        {ok,{msghdr,<<0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,115,0,232,
+                      20,127,0,0,1,...>>,
+                      [{msg_iov,<<>>},{iov,[<<>>]}]}}
+
+        3> gen_unix:sendmsg(Socket, Msg).
         ok
 
         # Back in VM 1
         2> {ok, Socket} = gen_unix:accept(Listen).
         {ok,9}
 
-        3> {ok, Cred} = gen_unix:credrecv(Socket).
-        {ok,<<66,50,0,0,232,3,0,0,232,3,0,0>>}
+        3> {ok, Msg} = gen_unix:msg(credrecv).
+        {ok,{msghdr,<<0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,115,0,128,
+                      198,127,0,0,1,...>>,
+                      [{msg_iov,<<>>},{msg_control,<<>>},{iov,[<<>>]}]}}
 
-        4> gen_unix:cred(Cred).
-        [{pid,12866},{uid,1000},{gid,1000}]
+        4> gen_unix:setsockopt(Socket, credrecv, open).
+        ok
+
+        5> gen_unix:recvmsg(Socket, Msg).
+        {ok,1}
+
+        6> gen_unix:msg(Msg).
+        {ok, [{pid,12866},{uid,1000},{gid,1000}]}
+
+        7> gen_unix:setsockopt(Socket, credrecv, close).
+        ok
