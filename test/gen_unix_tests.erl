@@ -86,10 +86,10 @@ fdpass_test() ->
     {ok, 1} = gen_unix:recvmsg(Ref, Socket, Msg),
 
     {ok, [FD1,FD2]} = unixsock:msg(Msg),
-    true = is_integer(FD1),
-    true = is_integer(FD2),
+    true = is_integer(FD1) and (FD1 > 2),
+    true = is_integer(FD2) and (FD2 > 2),
 
-    error_logger:info_report([{fd1, FD1}, {fd2, FD2}]),
+    %error_logger:info_report([{fd1, FD1}, {fd2, FD2}]),
 
     {ok, Socket1} = gen_udp:open(0, [binary, {fd, FD1}, {active, false}]),
     {ok, Socket2} = gen_udp:open(0, [binary, {fd, FD2}, {active, false}]),
