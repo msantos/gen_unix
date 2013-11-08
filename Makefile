@@ -21,7 +21,7 @@ deps: $(REBAR)
 	@$(REBAR) check-deps || $(REBAR) get-deps
 
 test: $(REBAR) compile
-	@$(REBAR) eunit suite=gen_unix
+	@$(REBAR) xref eunit recursive=false
 
 examples: eg
 eg:
