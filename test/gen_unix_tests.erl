@@ -45,9 +45,28 @@ ucred_struct_test() ->
     Cred = unixsock:cred([]),
     Cred = unixsock:cred(unixsock:cred(Cred)).
 
-credpass_test() ->
+socket_test_() ->
+    {setup,
+        fun start/0,
+        fun stop/1,
+        fun run/1
+    }.
+
+start() ->
     file:make_dir(?SOCKDIR),
     {ok, Ref} = gen_unix:start(),
+    Ref.
+
+stop(Ref) ->
+    gen_unix:stop(Ref).
+
+run(Ref) ->
+    [
+        credpass(Ref),
+        fdpass(Ref)
+    ].
+
+credpass(Ref) ->
     {ok, Socket0} = gen_unix:listen(Ref, ?SOCKDIR ++ "/cred"),
     spawn(fun() ->
         os:cmd("erl -detached -pa ../ebin ../deps/*/ebin ebin deps/*/ebin -s gen_unix_tests credsend -s init stop")
@@ -66,15 +85,14 @@ credpass_test() ->
     Gid = proplists:get_value(gid, Ucred),
     Pid = proplists:get_value(pid, Ucred),
     error_logger:info_report(Ucred),
-    true = is_integer(Uid),
-    true = is_integer(Gid),
-    true = is_integer(Pid),
 
-    gen_unix:stop(Ref).
+    [
+        ?_assertEqual(true, is_integer(Uid)),
+        ?_assertEqual(true, is_integer(Gid)),
+        ?_assertEqual(true, is_integer(Pid))
+    ].
 
-fdpass_test() ->
-    {ok, Ref} = gen_unix:start(),
-    file:make_dir(?SOCKDIR),
+fdpass(Ref) ->
     {ok, Socket0} = gen_unix:listen(Ref, ?SOCKDIR ++ "/fd"),
     spawn(fun() ->
         os:cmd("erl -detached -pa ../ebin ../deps/*/ebin ebin deps/*/ebin -s gen_unix_tests fdsend -s init stop")
@@ -94,10 +112,10 @@ fdpass_test() ->
     {ok, Socket1} = gen_udp:open(0, [binary, {fd, FD1}, {active, false}]),
     {ok, Socket2} = gen_udp:open(0, [binary, {fd, FD2}, {active, false}]),
 
-    {ok, {{127,0,0,1}, _, <<0,1,2,3,4,5,6,7,8,9>>}} = gen_udp:recv(Socket1, 20),
-    {ok, {{127,0,0,1}, _, <<0,1,2,3,4,5,6,7,8,9>>}} = gen_udp:recv(Socket2, 20),
-
-    gen_unix:stop(Ref).
+    [
+        ?_assertMatch({ok, {{127,0,0,1}, _, <<0,1,2,3,4,5,6,7,8,9>>}}, gen_udp:recv(Socket1, 20)),
+        ?_assertMatch({ok, {{127,0,0,1}, _, <<0,1,2,3,4,5,6,7,8,9>>}}, gen_udp:recv(Socket2, 20))
+    ].
 
 credsend() ->
     {ok, Ref} = gen_unix:start(),
