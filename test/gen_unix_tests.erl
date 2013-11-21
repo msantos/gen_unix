@@ -84,12 +84,16 @@ credpass(Ref) ->
     Uid = proplists:get_value(uid, Ucred),
     Gid = proplists:get_value(gid, Ucred),
     Pid = proplists:get_value(pid, Ucred),
-    error_logger:info_report(Ucred),
+%    error_logger:info_report(Ucred),
 
     [
         ?_assertEqual(true, is_integer(Uid)),
         ?_assertEqual(true, is_integer(Gid)),
-        ?_assertEqual(true, is_integer(Pid))
+        ?_assertEqual(true, is_integer(Pid)),
+        ?_assertNotEqual(
+            {0, 4294967295, 4294967295},
+            {Pid, Uid, Gid}
+        )
     ].
 
 fdpass(Ref) ->
