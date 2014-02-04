@@ -95,9 +95,9 @@ pollid(Ref) ->
 %%--------------------------------------------------------------------
 init([_Options]) ->
     process_flag(trap_exit, true),
-    {ok, Pid} = inert:start(),
+    Poll = inert:start(),
     {ok, #state{
-            poll = Pid
+            poll = Poll
         }}.
 
 handle_call({listen, Path}, _From, #state{fds = FDs} = State) ->
@@ -180,5 +180,5 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
-poll(Ref, Socket, Options) ->
-    inert:poll(Ref, Socket, Options).
+poll(Poll, Socket, Options) ->
+    inert:poll(Poll, Socket, Options).
