@@ -72,14 +72,24 @@
 listen(Path) when is_list(Path) ->
     listen(list_to_binary(Path));
 listen(Path) when is_binary(Path), byte_size(Path) < ?UNIX_PATH_MAX ->
-    {ok, Socket} = procket:socket(?PF_LOCAL, ?SOCK_STREAM, 0),
-    Len = byte_size(Path),
-    Sun = <<(procket:sockaddr_common(?PF_LOCAL, Len))/binary,
-            Path/binary,
-            0:((procket:unix_path_max()-Len)*8)>>,
-    ok = procket:bind(Socket, Sun),
-    ok = procket:listen(Socket, ?BACKLOG),
-    {ok, Socket}.
+    case procket:socket(?PF_LOCAL, ?SOCK_STREAM, 0) of
+        {ok, Socket} ->
+            Len = byte_size(Path),
+            Sun = <<(procket:sockaddr_common(?PF_LOCAL, Len))/binary,
+                Path/binary,
+                0:((procket:unix_path_max()-Len)*8)>>,
+            listen_1(Socket, procket:bind(Socket, Sun));
+        Error ->
+            Error
+    end.
+
+listen_1(Socket, ok) ->
+    case procket:listen(Socket, ?BACKLOG) of
+        ok -> {ok, Socket};
+        Error -> Error
+    end;
+listen_1(_, Error) ->
+    Error.
 
 connect(Path) when is_list(Path) ->
     connect(list_to_binary(Path));
@@ -89,8 +99,12 @@ connect(Path) when is_binary(Path), byte_size(Path) < ?UNIX_PATH_MAX ->
     Sun = <<(procket:sockaddr_common(?PF_LOCAL, Len))/binary,
             Path/binary,
             0:((procket:unix_path_max()-Len)*8)>>,
-    ok = procket:connect(Socket, Sun),
-    {ok, Socket}.
+    case procket:connect(Socket, Sun) of
+        ok ->
+            {ok, Socket};
+        Error ->
+            Error
+    end.
 
 close(FD) ->
     procket:close(FD).
@@ -261,7 +275,7 @@ cred({unix, _}, <<
         Rest/binary
         >>) ->
     Num = Ngroups * 4 * 8,
-    <<Gr:Num, _/binary>> = Rest,
+    <<Gr:Num/binary, _/binary>> = Rest,
     Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
     [{ref, Ref}, {uid, Uid}, {gid, Gid}, {groups, Groups}];
 cred({unix, _}, Fields) when is_list(Fields) ->
