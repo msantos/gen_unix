@@ -274,7 +274,7 @@ cred({unix, _}, <<
         Ngroups:2/native-signed-integer-unit:8,
         Rest/binary
         >>) ->
-    Num = Ngroups * 4 * 8,
+    Num = Ngroups * 4,
     <<Gr:Num/binary, _/binary>> = Rest,
     Groups = [ N || <<N:4/native-unsigned-integer-unit:8>> <= Gr ],
     [{ref, Ref}, {uid, Uid}, {gid, Gid}, {groups, Groups}];
