@@ -95,7 +95,7 @@ pollid(Ref) ->
 %%--------------------------------------------------------------------
 init([_Options]) ->
     process_flag(trap_exit, true),
-    Poll = inert:start(),
+    Poll = prim_inert:start(),
     {ok, #state{
             poll = Poll
         }}.
@@ -170,7 +170,7 @@ terminate(_Reason, #state{fds = FDs, poll = Poll}) ->
                 unixsock:close(FD),
                 file:delete(Path)
         end, FDs),
-    inert:stop(Poll),
+    prim_inert:stop(Poll),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -181,4 +181,4 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 poll(Poll, Socket, Options) ->
-    inert:poll(Poll, Socket, Options).
+    prim_inert:poll(Poll, Socket, Options).
