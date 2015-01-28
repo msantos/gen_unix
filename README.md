@@ -13,7 +13,7 @@ Examples
   Open 2 shell prompts and start an Erlang VM in each:
 
         # VM 1
-        $ ./start.sh
+        $ rebar shell
         1> {ok, Ref} = gen_unix:start().
         {ok,<0.35.0>}
 
@@ -21,7 +21,7 @@ Examples
         {ok,8}
 
         # VM 2
-        $ sudo ./start.sh
+        $ sudo rebar shell
         1> {ok, Ref} = gen_unix:start().
         {ok,<0.35.0>}
 
@@ -67,7 +67,7 @@ Examples
 * Credential passing
 
         # VM 1
-        $ ./start.sh
+        $ rebar shell
         1> {ok, Ref} = gen_unix:start().
         {ok,<0.35.0>}
 
@@ -75,7 +75,7 @@ Examples
         {ok,8}
 
         # VM 2
-        $ ./start.sh
+        $ rebar shell
         1> {ok, Ref} = gen_unix:start().
         {ok,<0.35.0>}
 
