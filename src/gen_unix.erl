@@ -55,8 +55,9 @@ accept(Ref, Socket) ->
     accept(Ref, Socket, []).
 accept(Ref, Socket, Options) ->
     Poll = pollid(Ref),
-    case poll(Poll, Socket, Options) of
-        ok ->
+    Timeout = proplists:get_value(timeout, Options, infinity),
+    case poll(Poll, Socket, [{mode,read}, {timeout, Timeout}]) of
+        {ok,read} ->
             gen_server:call(Ref, {accept, Socket});
         Error ->
             Error
@@ -78,9 +79,10 @@ recvmsg(Ref, Socket, Msg) ->
     recvmsg(Ref, Socket, Msg, []).
 recvmsg(Ref, Socket, Msg, Options) ->
     Flags = proplists:get_value(flags, Options, 0),
+    Timeout = proplists:get_value(timeout, Options, infinity),
     Poll = pollid(Ref),
-    case poll(Poll, Socket, Options) of
-        ok ->
+    case poll(Poll, Socket, [{mode,read}, {timeout,Timeout}]) of
+        {ok,read} ->
             unixsock:recvmsg(Socket, Msg, Flags);
         Error ->
             Error
