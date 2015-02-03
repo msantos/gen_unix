@@ -34,7 +34,7 @@
 %-include_lib("pkt/include/pkt.hrl").
 
 -export([
-    listen/1,
+    listen/1, listen/2,
     connect/1,
     close/1,
 
@@ -68,27 +68,32 @@
 -define(SO_PASSCRED, ?MODULE:so_passcred()).
 -define(SO_PEERCRED, ?MODULE:so_peercred()).
 
+-spec listen(Path :: iodata()) -> {'ok',integer()} | {'error',file:posix()}.
+listen(Path) ->
+    listen(Path, ?BACKLOG).
 
-listen(Path) when is_list(Path) ->
-    listen(list_to_binary(Path));
-listen(Path) when is_binary(Path), byte_size(Path) < ?UNIX_PATH_MAX ->
+-spec listen(Path :: iodata(), Backlog :: non_neg_integer()) ->
+    {'ok',integer()} | {'error',file:posix()}.
+listen(Path, Backlog) when is_list(Path) ->
+    listen(iolist_to_binary(Path), Backlog);
+listen(Path, Backlog) when is_binary(Path), byte_size(Path) < ?UNIX_PATH_MAX ->
     case procket:socket(?PF_LOCAL, ?SOCK_STREAM, 0) of
         {ok, Socket} ->
             Len = byte_size(Path),
             Sun = <<(procket:sockaddr_common(?PF_LOCAL, Len))/binary,
                 Path/binary,
                 0:((procket:unix_path_max()-Len)*8)>>,
-            listen_1(Socket, procket:bind(Socket, Sun));
+            listen_1(Socket, Backlog, procket:bind(Socket, Sun));
         Error ->
             Error
     end.
 
-listen_1(Socket, ok) ->
-    case procket:listen(Socket, ?BACKLOG) of
+listen_1(Socket, Backlog, ok) ->
+    case procket:listen(Socket, Backlog) of
         ok -> {ok, Socket};
         Error -> Error
     end;
-listen_1(_, Error) ->
+listen_1(_Socket, _Backlog, Error) ->
     Error.
 
 connect(Path) when is_list(Path) ->
