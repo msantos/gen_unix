@@ -73,14 +73,14 @@ credpass(Ref) ->
     end),
     {ok, Socket} = gen_unix:accept(Ref, Socket0),
 
-    {ok, Msg} = unixsock:msg(credrecv),
+    {Bufsz, Msgsz} = unixsock:msg(credrecv),
 
     ok = unixsock:setsockopt(Socket, {credrecv, open}),
-    {ok, 1} = gen_unix:recvmsg(Ref, Socket, Msg),
+    {ok, _Buf, _Flags, Ctl} = gen_unix:recvmsg(Ref, Socket, Bufsz, Msgsz),
     ok = unixsock:setsockopt(Socket, {credrecv, close}),
 
     % Check for common fields
-    {ok, Ucred} = unixsock:msg(Msg),
+    {ok, Ucred} = unixsock:msg(Ctl),
     Uid = proplists:get_value(uid, Ucred),
     Gid = proplists:get_value(gid, Ucred),
     Pid = proplists:get_value(pid, Ucred),
@@ -103,11 +103,11 @@ fdpass(Ref) ->
     end),
     {ok, Socket} = gen_unix:accept(Ref, Socket0),
 
-    {ok, Msg} = unixsock:msg({fdrecv, 2}),
+    {Bufsz, Msgsz} = unixsock:msg({fdrecv, 2}),
 
-    {ok, 1} = gen_unix:recvmsg(Ref, Socket, Msg),
+    {ok, _Buf, _Flags, Ctl} = gen_unix:recvmsg(Ref, Socket, Bufsz, Msgsz),
 
-    {ok, [FD1,FD2]} = unixsock:msg(Msg),
+    {ok, [FD1,FD2]} = unixsock:msg(Ctl),
     true = is_integer(FD1) and (FD1 > 2),
     true = is_integer(FD2) and (FD2 > 2),
 
@@ -124,8 +124,8 @@ fdpass(Ref) ->
 credsend() ->
     {ok, Ref} = gen_unix:start(),
     {ok, Socket} = gen_unix:connect(Ref, ?SOCKDIR ++ "/cred"),
-    {ok, Msg} = unixsock:msg(credsend),
-    ok = gen_unix:sendmsg(Ref, Socket, Msg),
+    {Buf, Msg} = unixsock:msg(credsend),
+    ok = gen_unix:sendmsg(Ref, Socket, Buf, Msg),
     timer:sleep(1000).
 
 fdsend() ->
@@ -142,8 +142,8 @@ fdsend() ->
     {ok, FD1} = inet:getfd(Socket1),
     {ok, FD2} = inet:getfd(Socket2),
 
-    {ok, Msg} = unixsock:msg({fdsend, [FD1, FD2]}),
-    ok = gen_unix:sendmsg(Ref, Socket, Msg),
+    {Buf, Msg} = unixsock:msg({fdsend, [FD1, FD2]}),
+    ok = gen_unix:sendmsg(Ref, Socket, Buf, Msg),
 
     ok = gen_udp:close(Socket1),
     ok = gen_udp:close(Socket2),

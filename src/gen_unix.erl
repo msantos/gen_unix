@@ -22,8 +22,8 @@
     connect/2,
     accept/2, accept/3,
     close/2,
-    sendmsg/3, sendmsg/4,
-    recvmsg/3, recvmsg/4,
+    sendmsg/4, sendmsg/5,
+    recvmsg/4, recvmsg/5,
 
     pollid/1
     ]).
@@ -69,21 +69,21 @@ connect(Ref, Path) ->
 close(Ref, Socket) ->
     gen_server:call(Ref, {close, Socket}).
 
-sendmsg(Ref, Socket, Msg) ->
-    sendmsg(Ref, Socket, Msg, []).
-sendmsg(_Ref, Socket, Msg, Options) ->
+sendmsg(Ref, Socket, Buf, Msg) ->
+    sendmsg(Ref, Socket, Buf, Msg, []).
+sendmsg(_Ref, Socket, Buf, Msg, Options) ->
     Flags = proplists:get_value(flags, Options, 0),
-    unixsock:sendmsg(Socket, Msg, Flags).
+    unixsock:sendmsg(Socket, Buf, Flags, Msg).
 
-recvmsg(Ref, Socket, Msg) ->
-    recvmsg(Ref, Socket, Msg, []).
-recvmsg(Ref, Socket, Msg, Options) ->
+recvmsg(Ref, Socket, Bufsz, Msgsz) ->
+    recvmsg(Ref, Socket, Bufsz, Msgsz, []).
+recvmsg(Ref, Socket, Bufsz, Msgsz, Options) ->
     Flags = proplists:get_value(flags, Options, 0),
     Timeout = proplists:get_value(timeout, Options, infinity),
     Poll = pollid(Ref),
     case poll(Poll, Socket, [{mode,read}, {timeout,Timeout}]) of
         {ok,read} ->
-            unixsock:recvmsg(Socket, Msg, Flags);
+            unixsock:recvmsg(Socket, Bufsz, Flags, Msgsz);
         Error ->
             Error
     end.

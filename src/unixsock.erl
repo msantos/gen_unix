@@ -30,7 +30,6 @@
 %% POSSIBILITY OF SUCH DAMAGE.
 -module(unixsock).
 -include_lib("procket/include/procket.hrl").
--include_lib("procket/include/procket_msg.hrl").
 %-include_lib("pkt/include/pkt.hrl").
 
 -export([
@@ -47,8 +46,8 @@
     fd/1,
     cred/1,
 
-    sendmsg/2, sendmsg/3,
-    recvmsg/2, recvmsg/3,
+    sendmsg/3, sendmsg/4,
+    recvmsg/3, recvmsg/4,
 
     scm_rights/0,
     scm_creds/0,
@@ -67,6 +66,8 @@
 % XXX testing only, move these to procket
 -define(SO_PASSCRED, ?MODULE:so_passcred()).
 -define(SO_PEERCRED, ?MODULE:so_peercred()).
+
+-define(SIZEOF_CMSGHDR, 8 + 4 + 4).
 
 -spec listen(Path :: iodata()) -> {'ok',integer()} | {'error',file:posix()}.
 listen(Path) ->
@@ -117,24 +118,24 @@ close(FD) ->
 accept(FD) ->
     procket:accept(FD).
 
-cmsghdr(Level, Type, Data) when is_integer(Level), is_integer(Type), is_binary(Data) ->
-    procket_msg:cmsghdr(#cmsghdr{
-            level = Level,
-            type = Type,
-            data = Data
-            }).
+recvmsg(FD, Bufsz, Msgsz) ->
+    recvmsg(FD, Bufsz, 0, Msgsz).
 
-msghdr(Name, Iov, Cmsg) ->
-    {ok, Msg, Res} = procket_msg:msghdr(#msghdr{
-        name = Name,        % must be empty (NULL) or eisconn
-        iov = Iov,          % send 1 byte to differentiate success from EOF
-        control = Cmsg
-    }),
-    {ok, {msghdr, Msg, Res}}.
+recvmsg(FD, Bufsz, Flags, Msgsz) ->
+    procket:recvmsg(FD, Bufsz, Flags, Msgsz).
+
+sendmsg(FD, Buf, Msg) ->
+    procket:sendmsg(FD, Buf, 0, Msg).
+
+sendmsg(FD, Buf, Flags, Msg) ->
+    procket:sendmsg(FD, Buf, Flags, Msg).
+
+cmsghdr(Level, Type, Data) when is_integer(Level), is_integer(Type), is_binary(Data) ->
+    [{Level, Type, Data}].
 
 msg({fdsend, FD}) when is_integer(FD); is_list(FD) ->
     Cmsg = cmsghdr(sol_socket(), ?SCM_RIGHTS, fd(FD)),
-    msghdr(<<>>, [<<"x">>], Cmsg);
+    {<<"x">>, Cmsg};
 msg(credsend) ->
     Cmsg = case os:type() of
         {unix,linux} ->
@@ -145,40 +146,30 @@ msg(credsend) ->
 	        % fills in the fields
             cmsghdr(sol_socket(), ?SCM_CREDENTIALS, cred([]))
     end,
-    msghdr(<<>>, [<<"c">>], Cmsg);
+    {<<"c">>, Cmsg};
 
 msg(fdrecv) ->
     msg({fdrecv, 1});
 msg({fdrecv, N}) when is_integer(N) ->
-    Cmsg = cmsghdr(sol_socket(), 0, <<0:(N * 4 * 8)>>),
-    msghdr(<<>>, [<<0:8>>], Cmsg);
+    Cmsgsz = 4 + 4 + (N * 4 * 8),
+    {1, Cmsgsz};
 msg(credrecv) ->
-    Cmsg = cmsghdr(sol_socket(), ?SCM_CREDENTIALS, <<0:(sizeof(ucred) * 8)>>),
-    msghdr(<<>>, [<<0:8>>], Cmsg);
+    Cmsgsz = 4 + 4 + (sizeof(ucred) * 8),
+    {1, Cmsgsz};
 
-msg({msghdr, Msg, Res}) when is_binary(Msg), is_list(Res) ->
-    Control = proplists:get_value(msg_control, Res),
-    msg_buf(Control).
+msg([{Level, Type, Data} = Cmsg]) when is_integer(Level), is_integer(Type), is_binary(Data) ->
+    msg_data(Cmsg).
 
-msg_buf(Control) ->
-    case procket:buf(Control) of
-        {ok, Buf} ->
-            msg_data(Buf);
-        Error ->
-            Error
-    end.
-
-msg_data(Buf) ->
-    {Cmsg, _} = procket_msg:cmsghdr(Buf),
+msg_data(Cmsg) ->
     SOL_SOCKET = sol_socket(),
     SCM_RIGHTS = ?SCM_RIGHTS,
     SCM_CREDENTIALS = ?SCM_CREDENTIALS,
     case Cmsg of
-        #cmsghdr{level = SOL_SOCKET, type = SCM_RIGHTS, data = Data} ->
+        {SOL_SOCKET, SCM_RIGHTS, Data} ->
             {ok, fd(Data)};
-        #cmsghdr{level = SOL_SOCKET, type = SCM_CREDENTIALS, data = Data} ->
+        {SOL_SOCKET, SCM_CREDENTIALS, Data} ->
             {ok, cred(Data)};
-        #cmsghdr{level = SOL_SOCKET, type = Type, data = Data} ->
+        {SOL_SOCKET, Type, Data} ->
             error_logger:info_report([{type, Type}, {data, Data}]),
             {error, esocktnosupport};
         _ ->
@@ -355,23 +346,3 @@ setsockopt({unix,linux}, Socket, credrecv, close) ->
         <<0:4/native-unsigned-integer-unit:8>>);
 setsockopt({unix,_}, _Socket, credrecv, _) ->
     ok.
-
-sendmsg(Socket, Msg) ->
-    sendmsg(Socket, Msg, 0).
-sendmsg(Socket, {msghdr, Msg, _Res}, Flags) ->
-    case procket:sendmsg(Socket, Msg, Flags) of
-        {ok, _N, _Msghdr} ->
-            ok;
-        Error ->
-            Error
-    end.
-
-recvmsg(Socket, Msg) ->
-    recvmsg(Socket, Msg, 0).
-recvmsg(Socket, {msghdr, Msg, _Res}, Flags) ->
-    case procket:recvmsg(Socket, Msg, Flags) of
-        {ok, N, _Msghdr} ->
-            {ok, N};
-        Error ->
-            Error
-    end.
