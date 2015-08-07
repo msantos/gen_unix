@@ -71,9 +71,19 @@ close(Ref, Socket) ->
 
 sendmsg(Ref, Socket, Buf, Msg) ->
     sendmsg(Ref, Socket, Buf, Msg, []).
-sendmsg(_Ref, Socket, Buf, Msg, Options) ->
+sendmsg(Ref, Socket, Buf, Msg, Options) ->
     Flags = proplists:get_value(flags, Options, 0),
-    unixsock:sendmsg(Socket, Buf, Flags, Msg).
+    Poll = pollid(Ref),
+    poll(Poll, Socket, [{mode,write}]),
+    case unixsock:sendmsg(Socket, Buf, Flags, Msg) of
+        ok ->
+            ok;
+        {ok, N} ->
+            <<_:N/bytes, Rest/binary>> = Buf,
+            sendmsg(Ref, Socket, Rest, Msg, Options);
+        Error ->
+            Error
+    end.
 
 recvmsg(Ref, Socket, Bufsz, Msgsz) ->
     recvmsg(Ref, Socket, Bufsz, Msgsz, []).
