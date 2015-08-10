@@ -46,7 +46,8 @@ start_link(Options) ->
     gen_server:start_link(?MODULE, [Options], []).
 
 stop(Ref) ->
-    gen_server:call(Ref, stop).
+    catch gen_server:call(Ref, stop),
+    ok.
 
 listen(Ref, Path) ->
     gen_server:call(Ref, {listen, Path}).
